@@ -1,10 +1,8 @@
 # aegis-cli
 
-An unoffical command-line interface (CLI) tool for viewing Aegis Authenticator Time-based One-Time Passwords (TOTP).
+An unoffical interactive command-line interface (CLI) tool for viewing Aegis Authenticator Time-based One-Time Passwords (TOTP).
 
-**Note:** This tool is primarily a viewer and does not support editing or creating new OTP codes.
-
-The main official phone app that generates the backup files this CLI app uses is here: https://getaegis.app/
+**Note:** This tool is primarily a viewer and does not support editing or creating new OTP codes. For that use the official app here: https://getaegis.app/
 
 ### Example Output
 
@@ -24,7 +22,7 @@ Make a selection to reveal the OTP code (or press Ctrl+C to exit): 1
 Time until next refresh: 25.0 seconds
 ```
 
-When filtering by a specific group (e.g., `aegis-cli /path/to/your/aegis-backup.json --group Finance`):
+When filtering by a specific group (e.g., `aegis-cli /path/to/your/aegis-backup.json --group Finance`) or by pressing g in interactive mode:
 
 ```text
 --- All OTPs ---
@@ -39,10 +37,10 @@ Time until next refresh: 25.0 seconds
 
 *   Decrypts Aegis Authenticator vault files using a provided password.
 *   Continuously displays OTP codes for all entries in a real-time refreshing table.
-*   Interactive mode to reveal obscured OTP codes on demand.
-*   Defaults to colored output, with an option to disable colors using the `--no-color` flag.
+*   Interactive mode to type-search and reveal obscured OTP codes on demand.
 *   Supports filtering OTP entries by group name.
 *   Purely command-line based, with no graphical interface.
+*   Option to copy direct to the clipboard, if the clipboard app is configured in ~/.config/aegis-cli/config.json
 
 ## Usage
 
