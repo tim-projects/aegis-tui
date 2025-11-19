@@ -12,6 +12,7 @@ def main():
     parser.add_argument("-v", "--vault-path", help="Path to the Aegis vault file. If not provided, attempts to find the latest in default locations.")
     parser.add_argument("-d", "--vault-dir", help="Directory to search for vault files. Defaults to current directory.", default=".")
     parser.add_argument("-u", "--uuid", help="Display OTP for a specific entry UUID.")
+    parser.add_argument("-g", "--group", help="Filter OTP entries by a specific group name.")
     parser.add_argument("positional_vault_path", nargs="?", help=argparse.SUPPRESS, default=None)
 
     args = parser.parse_args()
@@ -87,15 +88,18 @@ def main():
                 group_names = {group.uuid: group.name for group in vault_data.db.groups}
 
                 for entry in vault_data.db.entries:
-                    name = entry.name
-                    issuer = entry.issuer if entry.issuer else ""
-                    
                     # Resolve group UUIDs to names
                     resolved_groups = []
                     for group_uuid in entry.groups:
                         resolved_groups.append(group_names.get(group_uuid, group_uuid)) # Fallback to UUID if name not found
-                    groups = ", ".join(resolved_groups) if resolved_groups else ""
+                    
+                    # Apply group filter if provided
+                    if args.group and args.group not in resolved_groups:
+                        continue
 
+                    name = entry.name
+                    issuer = entry.issuer if entry.issuer else ""
+                    groups = ", ".join(resolved_groups) if resolved_groups else ""
                     note = entry.note if entry.note else ""
                     uuid = entry.uuid
 
@@ -141,30 +145,10 @@ def main():
                 initial_ttn_seconds = int(ttn / 1000)
 
                 for remaining_seconds in range(initial_ttn_seconds, 0, -1):
-                    # Clear the screen for each second of countdown
-                    os.system('clear')
-                    print("--- All OTPs ---")
-                    
-                    # Print header again for each refresh
-                    print(f"{'Issuer'.ljust(max_issuer_len)}  {'Name'.ljust(max_name_len)}  {'Code'.ljust(6)}  {'Group'.ljust(max_group_len)}  {'Note'.ljust(max_note_len)}")
-                    print(f"{'-' * max_issuer_len}  {'-' * max_name_len}  {'------'}  {'-' * max_group_len}  {'-' * max_note_len}")
-
-                    # Re-print the OTPs (they don't change during the 1-second countdown)
-                    for item in display_data:
-                        name = item["name"]
-                        issuer = item["issuer"]
-                        groups = item["groups"]
-                        note = item["note"]
-                        uuid = item["uuid"]
-
-                        otp_value = "Error"
-                        if uuid in otps:
-                            otp_value = otps[uuid].string()
-                        
-                        print(f"{issuer.ljust(max_issuer_len)}  {name.ljust(max_name_len)}  {otp_value.ljust(6)}  {groups.ljust(max_group_len)}  {note.ljust(max_note_len)}")
-
-                    print(f"\nTime until next refresh: {remaining_seconds:.1f} seconds")
+                    # Only update the countdown line
+                    print(f"\rTime until next refresh: {remaining_seconds:.1f} seconds", end='')
                     time.sleep(1)
+                print() # Move to the next line after countdown finishes
         except KeyboardInterrupt:
             print("\nExiting OTP display.")
             os.system('clear') # Clear the screen on exit
