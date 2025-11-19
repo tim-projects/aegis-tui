@@ -17,16 +17,16 @@ This project is a complete rewrite in Python, originally inspired by the `avdu` 
 
 ## Usage
 
-To run the `aegis-cli` tool, execute the `cli.py` script with the path to your Aegis vault `.json` file as an argument.
+To run the `aegis-cli` tool, execute the `aegis-cli.py` script with the path to your Aegis vault `.json` file as an argument.
 
 ```bash
-python cli.py /path/to/your/aegis-backup.json
+python aegis-cli.py /path/to/your/aegis-backup.json
 ```
 
 Alternatively, you can specify the password directly:
 
 ```bash
-python cli.py /path/to/your/aegis-backup.json -p "YourVaultPassword"
+python aegis-cli.py /path/to/your/aegis-backup.json -p "YourVaultPassword"
 ```
 
 

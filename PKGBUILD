@@ -19,8 +19,8 @@ package() {
   cd "${srcdir}/${pkgname}"
   # Install Python source files into site-packages
   install -d "${pkgdir}/usr/lib/python3.13/site-packages/aegis_cli"
-  install -m 644 "avdu_core.py" "${pkgdir}/usr/lib/python3.13/site-packages/aegis_cli/"
-  install -m 644 "cli.py" "${pkgdir}/usr/lib/python3.13/site-packages/aegis_cli/"
+  install -m 644 "aegis_core.py" "${pkgdir}/usr/lib/python3.13/site-packages/aegis_cli/"
+  install -m 644 "aegis-cli.py" "${pkgdir}/usr/lib/python3.13/site-packages/aegis_cli/"
   install -m 644 "otp.py" "${pkgdir}/usr/lib/python3.13/site-packages/aegis_cli/"
   install -m 644 "vault.py" "${pkgdir}/usr/lib/python3.13/site-packages/aegis_cli/"
 
@@ -28,7 +28,7 @@ package() {
   install -d "${pkgdir}/usr/bin"
   cat > "${pkgdir}/usr/bin/aegis-cli" << EOF
 #!/bin/bash
-python3 -m aegis_cli.cli "$@"
+python3 -m aegis_cli.aegis-cli "$@"
 EOF
   chmod 755 "${pkgdir}/usr/bin/aegis-cli"
 
