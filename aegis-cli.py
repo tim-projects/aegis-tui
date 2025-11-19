@@ -66,19 +66,25 @@ def main():
                 # Recalculate OTPs for the current time, as they might change during the countdown
                 otps = get_otps(vault_data)
 
-                # Collect data and calculate max widths (re-do this to ensure accurate padding if names/issuers change, though unlikely)
+                # Collect data and calculate max widths
                 display_data = []
                 max_name_len = 0
                 max_issuer_len = 0
+                max_group_len = 0
+                max_note_len = 0
 
                 for entry in vault_data.db.entries:
                     name = entry.name
                     issuer = entry.issuer if entry.issuer else ""
+                    groups = ", ".join(entry.groups) if entry.groups else ""
+                    note = entry.note if entry.note else ""
                     uuid = entry.uuid
 
                     display_data.append({
                         "name": name,
                         "issuer": issuer,
+                        "groups": groups,
+                        "note": note,
                         "uuid": uuid
                     })
 
@@ -86,21 +92,31 @@ def main():
                         max_name_len = len(name)
                     if len(issuer) > max_issuer_len:
                         max_issuer_len = len(issuer)
+                    if len(groups) > max_group_len:
+                        max_group_len = len(groups)
+                    if len(note) > max_note_len:
+                        max_note_len = len(note)
                 
                 # Sort alphabetically by issuer
                 display_data.sort(key=lambda x: x["issuer"].lower())
+
+                # Print header
+                print(f"{'Issuer'.ljust(max_issuer_len)}  {'Name'.ljust(max_name_len)}  {'Code'.ljust(6)}  {'Group'.ljust(max_group_len)}  {'Note'.ljust(max_note_len)}")
+                print(f"{'-' * max_issuer_len}  {'-' * max_name_len}  {'------'}  {'-' * max_group_len}  {'-' * max_note_len}")
 
                 # Print formatted output
                 for item in display_data:
                     name = item["name"]
                     issuer = item["issuer"]
+                    groups = item["groups"]
+                    note = item["note"]
                     uuid = item["uuid"]
 
-                    otp_value = "Error generating OTP"
+                    otp_value = "Error"
                     if uuid in otps:
                         otp_value = otps[uuid].string()
                     
-                    print(f"{name.ljust(max_name_len)}  {issuer.ljust(max_issuer_len)}  {otp_value}")
+                    print(f"{issuer.ljust(max_issuer_len)}  {name.ljust(max_name_len)}  {otp_value.ljust(6)}  {groups.ljust(max_group_len)}  {note.ljust(max_note_len)}")
                 
                 ttn = get_ttn()
                 initial_ttn_seconds = int(ttn / 1000)
@@ -110,17 +126,23 @@ def main():
                     os.system('clear')
                     print("--- All OTPs ---")
                     
+                    # Print header again for each refresh
+                    print(f"{'Issuer'.ljust(max_issuer_len)}  {'Name'.ljust(max_name_len)}  {'Code'.ljust(6)}  {'Group'.ljust(max_group_len)}  {'Note'.ljust(max_note_len)}")
+                    print(f"{'-' * max_issuer_len}  {'-' * max_name_len}  {'------'}  {'-' * max_group_len}  {'-' * max_note_len}")
+
                     # Re-print the OTPs (they don't change during the 1-second countdown)
                     for item in display_data:
                         name = item["name"]
                         issuer = item["issuer"]
+                        groups = item["groups"]
+                        note = item["note"]
                         uuid = item["uuid"]
 
-                        otp_value = "Error generating OTP"
+                        otp_value = "Error"
                         if uuid in otps:
                             otp_value = otps[uuid].string()
                         
-                        print(f"{name.ljust(max_name_len)}  {issuer.ljust(max_issuer_len)}  {otp_value}")
+                        print(f"{issuer.ljust(max_issuer_len)}  {name.ljust(max_name_len)}  {otp_value.ljust(6)}  {groups.ljust(max_group_len)}  {note.ljust(max_note_len)}")
 
                     print(f"\nTime until next refresh: {remaining_seconds:.1f} seconds")
                     time.sleep(1)
