@@ -88,7 +88,7 @@ def main():
                 # Create a mapping of group UUIDs to group names
                 group_names = {group.uuid: group.name for group in vault_data.db.groups}
 
-                for entry_index, entry in enumerate(vault_data.db.entries):
+                for entry in vault_data.db.entries:
                     # Resolve group UUIDs to names
                     resolved_groups = []
                     for group_uuid in entry.groups:
@@ -105,7 +105,6 @@ def main():
                     uuid = entry.uuid
 
                     display_data.append({
-                        "index": entry_index + 1, # 1-based indexing for user display
                         "name": name,
                         "issuer": issuer,
                         "groups": groups,
@@ -124,6 +123,10 @@ def main():
                 
                 # Sort alphabetically by issuer
                 display_data.sort(key=lambda x: x["issuer"].lower())
+
+                # Assign 1-based index after sorting
+                for i, item in enumerate(display_data):
+                    item["index"] = i + 1
 
                 # Print header
                 print(f"{'#'.ljust(3)} {'Issuer'.ljust(max_issuer_len)}  {'Name'.ljust(max_name_len)}  {'Code'.ljust(6)}  {'Group'.ljust(max_group_len)}  {'Note'.ljust(max_note_len)}")
@@ -146,12 +149,31 @@ def main():
                     
                     print(f"{str(index).ljust(3)} {issuer.ljust(max_issuer_len)}  {name.ljust(max_name_len)}  {otp_value.ljust(6)}  {groups.ljust(max_group_len)}  {note.ljust(max_note_len)}")
                 
+                # After countdown, prompt for input
+                print("\nMake a selection to reveal the OTP code (or press Ctrl+C to exit): ", end='')
+                try:
+                    selection = input()
+                    if selection.isdigit():
+                        selected_index = int(selection)
+                        # Clear previously revealed OTPs and add the new one
+                        revealed_otps.clear()
+                        for item in display_data:
+                            if item["index"] == selected_index:
+                                revealed_otps.add(item["uuid"])
+                                break
+                except KeyboardInterrupt:
+                    raise # Re-raise to be caught by the outer KeyboardInterrupt handler
+                except EOFError: # Handle cases where input stream might close (e.g., non-interactive shell)
+                    print("\nNon-interactive session detected. Exiting.")
+                    os.system('clear')
+                    return
+
                 ttn = get_ttn()
                 initial_ttn_seconds = int(ttn / 1000)
 
-                # Countdown and input loop
+                # Countdown loop
                 for remaining_seconds in range(initial_ttn_seconds, 0, -1):
-                    print(f"\nTime until next refresh: {remaining_seconds:.1f} seconds")
+                    print(f"\n\rTime until next refresh: {remaining_seconds:.1f} seconds", end='')
                     time.sleep(1)
                     os.system('clear') # Clear for next second of countdown
                     print("--- All OTPs ---")
@@ -173,27 +195,6 @@ def main():
                             otp_value = "******"
                         
                         print(f"{str(index).ljust(3)} {issuer.ljust(max_issuer_len)}  {name.ljust(max_name_len)}  {otp_value.ljust(6)}  {groups.ljust(max_group_len)}  {note.ljust(max_note_len)}")
-
-                # After countdown, prompt for input
-                print("\nMake a selection to reveal the OTP code (or press Ctrl+C to exit): ", end='')
-                try:
-                    selection = input()
-                    if selection.isdigit():
-                        selected_index = int(selection)
-                        for item in display_data:
-                            if item["index"] == selected_index:
-                                revealed_otps.add(item["uuid"])
-                                break
-                except KeyboardInterrupt:
-                    raise # Re-raise to be caught by the outer KeyboardInterrupt handler
-                except EOFError: # Handle cases where input stream might close (e.g., non-interactive shell)
-                    print("\nNon-interactive session detected. Exiting.")
-                    os.system('clear')
-                    return
-
-        except KeyboardInterrupt:
-            print("\nExiting OTP display.")
-            os.system('clear') # Clear the screen on exit
 
 if __name__ == "__main__":
     main()
