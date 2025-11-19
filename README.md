@@ -52,6 +52,8 @@ Once installed, you can run `aegis-cli` from any terminal with the path to your 
 aegis-cli /path/to/your/aegis-backup.json
 ```
 
+If no vault path is provided, `aegis-cli` will automatically search for the most recently modified `aegis-backup-*.json` file in the current directory, and then in `~/.config/aegis`.
+
 If your vault requires a password, you will be prompted securely. For non-interactive use (e.g., in scripts), you can provide the password via the `AEGIS_CLI_PASSWORD` environment variable:
 
 ```bash

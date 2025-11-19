@@ -5,6 +5,8 @@ import time
 
 from aegis_core import find_vault_path, read_and_decrypt_vault_file, get_otps, get_ttn
 
+DEFAULT_AEGIS_VAULT_DIR = os.path.expanduser("~/.config/aegis")
+
 def main():
     parser = argparse.ArgumentParser(description="Aegis Authenticator CLI in Python.", prog="aegis-cli")
     parser.add_argument("-v", "--vault-path", help="Path to the Aegis vault file. If not provided, attempts to find the latest in default locations.")
@@ -19,8 +21,16 @@ def main():
         vault_path = args.positional_vault_path
 
     if not vault_path:
+        # First, try to find in the explicitly provided or default vault_dir
         print(f"Searching for vault in {os.path.abspath(args.vault_dir)}...")
         vault_path = find_vault_path(args.vault_dir)
+
+        if not vault_path and args.vault_dir != DEFAULT_AEGIS_VAULT_DIR:
+            # If not found in vault_dir, try the default Aegis config directory
+            print(f"Vault not found in {os.path.abspath(args.vault_dir)}. Searching in {DEFAULT_AEGIS_VAULT_DIR}...")
+            vault_path = find_vault_path(DEFAULT_AEGIS_VAULT_DIR)
+            args.vault_dir = DEFAULT_AEGIS_VAULT_DIR # Update for consistent messaging
+
         if not vault_path:
             print("Error: No vault file found.")
             parser.print_help()
