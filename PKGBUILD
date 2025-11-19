@@ -1,4 +1,4 @@
-# Maintainer: Your Name <your@email.com>
+# Maintainer: Tim Jefferies <tim.jefferies@gmail.com>
 pkgname=aegis-cli
 pkgver=0.1.0
 pkgrel=1
@@ -8,18 +8,21 @@ url="https://github.com/tim-projects/${pkgname}"
 license=('GPL3')
 depends=('python' 'python-pyotp' 'python-cryptography')
 makedepends=('python')
+source=("${pkgname}::git+${url}.git#branch=main")
+sha256sums=('SKIP')
 
 build() {
   true
 }
 
 package() {
+  cd "${srcdir}/${pkgname}"
   # Install Python source files into site-packages
   install -d "${pkgdir}/usr/lib/python3.13/site-packages/aegis_cli"
-  install -m 644 "${srcdir}/avdu_core.py" "${pkgdir}/usr/lib/python3.13/site-packages/aegis_cli/"
-  install -m 644 "${srcdir}/cli.py" "${pkgdir}/usr/lib/python3.13/site-packages/aegis_cli/"
-  install -m 644 "${srcdir}/otp.py" "${pkgdir}/usr/lib/python3.13/site-packages/aegis_cli/"
-  install -m 644 "${srcdir}/vault.py" "${pkgdir}/usr/lib/python3.13/site-packages/aegis_cli/"
+  install -m 644 "avdu_core.py" "${pkgdir}/usr/lib/python3.13/site-packages/aegis_cli/"
+  install -m 644 "cli.py" "${pkgdir}/usr/lib/python3.13/site-packages/aegis_cli/"
+  install -m 644 "otp.py" "${pkgdir}/usr/lib/python3.13/site-packages/aegis_cli/"
+  install -m 644 "vault.py" "${pkgdir}/usr/lib/python3.13/site-packages/aegis_cli/"
 
   # Create the executable wrapper script
   install -d "${pkgdir}/usr/bin"
@@ -31,5 +34,5 @@ EOF
 
   # Install license
   install -d "${pkgdir}/usr/share/licenses/${pkgname}"
-  install -m 644 "${srcdir}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/"
+  install -m 644 "LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/"
 }
