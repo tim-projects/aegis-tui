@@ -3,7 +3,7 @@ import getpass
 import os
 import time
 
-from avdu_core import find_vault_path, read_and_decrypt_vault_file, get_otps, get_ttn
+from aegis_core import find_vault_path, read_and_decrypt_vault_file, get_otps, get_ttn
 
 def main():
     parser = argparse.ArgumentParser(description="Aegis Authenticator CLI in Python.")
