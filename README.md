@@ -2,12 +2,27 @@
 
 ### Example Output
 
+When run without a group filter:
+
 ```
 --- All OTPs ---
-MyBank             (Bank of America)  123456
-MyEmail            (Google)           789012
-MySocial           (Facebook)         345678
-MyGaming           (Steam)            901234
+Issuer             Name               Code    Group              Note
+------             ----               ----    -----              ----
+Bank of America    MyBank             123456  Finance            Checking Account
+Facebook           MySocial           345678  Social             Personal Profile
+Google             MyEmail            789012  Personal           Primary Email
+Steam              MyGaming           901234  Gaming             Steam Account
+
+Time until next refresh: 25.0 seconds
+```
+
+When filtering by a specific group (e.g., `aegis-cli /path/to/your/aegis-backup.json --group Finance`):
+
+```
+--- All OTPs ---
+Issuer             Name               Code    Group              Note
+------             ----               ----    -----              ----
+Bank of America    MyBank             123456  Finance            Checking Account
 
 Time until next refresh: 25.0 seconds
 ```
@@ -20,8 +35,9 @@ A command-line interface (CLI) tool for viewing Aegis Authenticator Time-based O
 
 *   Decrypts Aegis Authenticator vault files using a provided password.
 *   Continuously displays OTP codes for all entries in a real-time refreshing table.
-*   Automatically refreshes OTPs based on their configured periods, with a live countdown.
-*   Outputs OTPs in a clear, sorted table format (by Issuer).
+*   Automatically refreshes OTPs based on their configured periods, with a live countdown that updates in place.
+*   Outputs OTPs in a clear, sorted table format (by Issuer), including Issuer, Name, Code, Group, and Note.
+*   Supports filtering OTP entries by group name.
 *   Purely command-line based, with no graphical interface.
 
 ## Usage

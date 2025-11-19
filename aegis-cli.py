@@ -146,7 +146,7 @@ def main():
 
                 for remaining_seconds in range(initial_ttn_seconds, 0, -1):
                     # Only update the countdown line
-                    print(f"\rTime until next refresh: {remaining_seconds:.1f} seconds", end='')
+                    print(f"\n\rTime until next refresh: {remaining_seconds:.1f} seconds", end='')
                     time.sleep(1)
                 print() # Move to the next line after countdown finishes
         except KeyboardInterrupt:
