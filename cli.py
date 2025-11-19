@@ -30,10 +30,15 @@ def main():
     password = args.password
     if not password:
         try:
-            password = getpass.getpass("Enter vault password: ")
-        except Exception:
-            print("Warning: getpass failed. Falling back to insecure password input.")
-            password = input("Enter vault password (will be echoed): ")
+            try:
+                password = getpass.getpass("Enter vault password: ")
+            except Exception:
+                print("Warning: getpass failed. Falling back to insecure password input.")
+                password = input("Enter vault password (will be echoed): ")
+        except KeyboardInterrupt:
+            print("\nExiting.")
+            os.system('clear')
+            return
 
     try:
         vault_data = read_and_decrypt_vault_file(vault_path, password)

@@ -2,38 +2,33 @@
 
 A command-line interface (CLI) tool for viewing Aegis Authenticator Time-based One-Time Passwords (TOTP).
 
-This project is a fork of the original `avdu` project (https://github.com/Sammy-T/avdu), stripped down to provide only CLI functionality for displaying TOTP codes from an encrypted Aegis vault.
+This project is a complete rewrite in Python, originally inspired by the `avdu` project (https://github.com/Sammy-T/avdu). It provides CLI functionality for displaying OTP codes from an encrypted Aegis vault.
 
-**Note:** There are currently no plans for this tool to support editing or creating new TOTP codes; its sole purpose is to be a viewer.
+**Note:** This tool is primarily a viewer and does not support editing or creating new OTP codes.
 
 ## Features
 
-*   Decrypts Aegis Authenticator vault files.
-*   Continuously displays TOTP codes for all entries.
-*   Automatically refreshes OTPs based on their configured periods.
-*   Outputs OTPs in a neat, sorted table format (by Issuer).
-*   Purely command-line based, no graphical interface.
+*   Decrypts Aegis Authenticator vault files using a provided password.
+*   Continuously displays OTP codes for all entries in a real-time refreshing table.
+*   Automatically refreshes OTPs based on their configured periods, with a live countdown.
+*   Outputs OTPs in a clear, sorted table format (by Issuer).
+*   Purely command-line based, with no graphical interface.
+*   Graceful exit on `Ctrl+C` (KeyboardInterrupt), clearing the screen for security.
 
 ## Usage
 
-To run the `aegis-cli` tool, navigate to the `cmd/aegis-cli` directory and execute it with the path to your Aegis vault `.json` file as an argument.
+To run the `aegis-cli` tool, execute the `cli.py` script with the path to your Aegis vault `.json` file as an argument.
 
 ```bash
-./cmd/aegis-cli/aegis-cli /path/to/your/aegis-backup.json
+python cli.py /path/to/your/aegis-backup.json
 ```
 
-## Building from Source (for AUR)
-
-To build the `aegis-cli` tool from source, ensure you have Go installed (version 1.16 or higher is recommended).
-
-For AUR packages, the build process is typically handled by `makepkg`. You would usually place the source in a `PKGBUILD` file that includes a `build()` function similar to this:
+Alternatively, you can specify the password directly:
 
 ```bash
-build() {
-  cd "${srcdir}"
-  go build -o "${pkgdir}/usr/bin/aegis-cli" ./cmd/aegis-cli/main.go
-}
+python cli.py /path/to/your/aegis-backup.json -p "YourVaultPassword"
 ```
+
 
 ## License
 
