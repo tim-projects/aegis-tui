@@ -17,16 +17,48 @@ This project is a complete rewrite in Python, originally inspired by the `avdu` 
 
 ## Usage
 
-To run the `aegis-cli` tool, execute the `aegis-cli.py` script with the path to your Aegis vault `.json` file as an argument.
+### Installation (Arch Linux AUR)
+
+To install `aegis-cli` on Arch Linux, you can use an AUR helper like `yay` or `paru`:
 
 ```bash
-python aegis-cli.py /path/to/your/aegis-backup.json
+yay -S aegis-cli
+# or
+paru -S aegis-cli
 ```
 
-Alternatively, you can specify the password directly:
+Alternatively, you can build it manually:
 
 ```bash
-python aegis-cli.py /path/to/your/aegis-backup.json -p "YourVaultPassword"
+git clone https://aur.archlinux.org/aegis-cli.git
+cd aegis-cli
+makepkg -si
+```
+
+### Running the CLI
+
+Once installed, you can run `aegis-cli` from any terminal with the path to your Aegis vault `.json` file:
+
+```bash
+aegis-cli /path/to/your/aegis-backup.json
+```
+
+If your vault requires a password, you will be prompted securely. You can also provide the password directly (use with caution in scripts):
+
+```bash
+aegis-cli /path/to/your/aegis-backup.json -p "YourVaultPassword"
+```
+
+### Example Output
+
+```
+--- All OTPs ---
+MyBank             (Bank of America)  123456
+MyEmail            (Google)           789012
+MySocial           (Facebook)         345678
+MyGaming           (Steam)            901234
+
+Time until next refresh: 25.0 seconds
 ```
 
 
