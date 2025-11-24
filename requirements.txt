@@ -1,2 +1,4 @@
 pyotp
 readchar
+pyperclip
+cryptography
