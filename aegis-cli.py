@@ -4,8 +4,7 @@ import os
 import time
 import json
 from pathlib import Path
-import readchar
-import select
+
 import sys
 
 try:
@@ -250,13 +249,20 @@ def main():
                     line = f"{str(index).ljust(3)} {issuer.ljust(max_issuer_len)}  {name.ljust(max_name_len)}  {otp_value.ljust(6)}  {groups.ljust(max_group_len)}  {note.ljust(max_note_len)}"
                     print(apply_color(line, COLOR_DIM, args.no_color), flush=True)
 
-            # --- Input Handling & Countdown --- General Logic --- 
-            key = None
-            # Check for input with a short timeout. This is done regardless of mode, but handled differently.
-            if select.select([sys.stdin], [], [], 0.1)[0]: 
-                key = readchar.readkey() # Read key if input is available
-
+            # --- Input Handling for "Enter-to-Search" Mode ---
             if current_mode == "search":
+                search_term = input(f"\nType the name or line number to search (Ctrl+C to exit): ")
+                if not search_term: # If user just presses Enter, clear previous search
+                    search_term = ""
+                    revealed_otps.clear()
+                # No `time.sleep` needed here as `input()` is blocking.
+
+            # Original "Search as you type" logic (retained for reference)
+            if False: # Keep this block for historical reference, but it's currently disabled.
+                key = None
+                if select.select([sys.stdin], [], [], 0.1)[0]: # Check for input with a short timeout
+                    key = readchar.readkey() # Read key if input is available
+
                 if key: # Process key if one was pressed
                     if key == readchar.key.BACKSPACE:
                         search_term = search_term[:-1]
@@ -269,10 +275,11 @@ def main():
                         pass # Enter key is ignored in search mode, as automatic revelation handles it.
                     else:
                         search_term += key
-                
+                    
                 # Display the prompt *after* processing any new key
                 print(f"\nType the name or line number to reveal OTP code (Ctrl+C to exit): {search_term}", end='', flush=True)
                 time.sleep(0.1) # Add a small delay to prevent rapid blinking and allow user to type
+
                 
             
             elif current_mode == "reveal" and len(display_data) == 1: # Ensure we are still in a valid reveal state
@@ -295,41 +302,15 @@ def main():
                     line = f"{str(item['index']).ljust(3)} {item['issuer'].ljust(max_issuer_len)}  {item['name'].ljust(max_name_len)}  {otp_to_reveal.ljust(6)}  {item['groups'].ljust(max_group_len)}  {item['note'].ljust(max_note_len)}"
                     print(apply_color(line, COLOR_BOLD_WHITE, args.no_color), flush=True)
 
-                    countdown_text = f"\n\rTime until next refresh: {remaining_seconds:.1f} seconds (Esc: Back to Search, Enter: Copy OTP)"
+                    countdown_text = f"\n\rTime until next refresh: {remaining_seconds:.1f} seconds (Press Ctrl+C to exit)"
                     print(apply_color(countdown_text, COLOR_DIM, args.no_color), end='', flush=True)
                     
-                    # Check for input during the 1-second sleep
-                    if select.select([sys.stdin], [], [], 0.1)[0]: # Use a very short timeout
-                        key = readchar.readkey()
-                        if key == readchar.key.ESC:
-                            search_term = ""
-                            revealed_otps.clear()
-                            current_mode = "search"
-                            break # Exit countdown loop, return to main loop for full re-render
-                        elif key == readchar.key.ENTER:
-                            if PYPERCLIP_AVAILABLE:
-                                pyperclip.copy(otp_to_reveal)
-                                print(apply_color(" (OTP copied to clipboard!)", COLOR_DIM, args.no_color), end='', flush=True)
-                                time.sleep(1) # Show "copied" message briefly
-                            # Do not break, let the countdown continue to the end or until another key is pressed
-                            # This ensures the copied message is visible for a moment.
-                        elif key == readchar.key.BACKSPACE:
-                            # Re-trigger the countdown from full. Break inner loop to restart outer loop.
-                            # This effectively means restarting the 'for remaining_seconds' loop.
-                            break # This will exit the inner `for remaining_seconds` loop.
-                        elif key == readchar.key.CTRL_C:
-                            raise KeyboardInterrupt
-                        # Other keys are ignored in reveal mode
-                    
-                    # Sleep for the remainder of the second, or if a key was pressed, let the main loop handle the refresh
-                    time.sleep(0.9) # Sleep for the rest of the second (1s total with 0.1s input check)
+                    time.sleep(1) # Sleep for 1 second
 
-                # After countdown finishes or is broken by input
-                if current_mode == "reveal": # If not already switched to search mode by ESC
-                    # Automatically go back to search mode after countdown (unless it was already manually switched to search mode)
-                    search_term = ""
-                    revealed_otps.clear()
-                    current_mode = "search"
+                # After countdown finishes
+                search_term = ""
+                revealed_otps.clear()
+                current_mode = "search"
                     
     except KeyboardInterrupt:
         print("\nExiting.")
