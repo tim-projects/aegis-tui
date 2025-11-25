@@ -1,10 +1,10 @@
-# Current Task: Implement "Enter-to-Search" for OTP entries
+# Current Task: Implement Arrow Key Navigation for OTP entries
 
 ## Objective
-Rework the interactive OTP selection in `aegis-cli.py` to use a simpler "enter-to-search" filtering mechanism. The user will type a search string and press Enter to apply the filter, revealing codes only when a single match is found. The previous "search as you type" code will be retained but disabled.
+Enhance the interactive OTP selection in `aegis-cli.py` by implementing a Text User Interface (TUI) with arrow key navigation for selecting entries. The user will be able to move a cursor up and down the filtered list and press Enter to reveal the OTP for the selected entry.
 
 ## Status
-Previous attempts to implement "search as you type" proved to be complex and did not work as intended. We are now pivoting to a simpler "enter-to-search" approach to ensure basic filtering functionality. Vault generation and decryption are successful, and the `aegis-cli.py` application runs without runtime errors (aside from the expected `termios.error` in this environment).
+Previous attempts with "search-as-you-type" and a simple "enter-to-search" revealed limitations in user experience for multi-result scenarios. We are now pivoting to a `ncurses`-based TUI to provide a more intuitive selection mechanism. Vault generation and decryption are successful, and the `aegis-cli.py` application runs without runtime errors (aside from the expected `termios.error` in this environment).
 
 ## Findings & Mitigations
 
@@ -46,9 +46,16 @@ Previous attempts to implement "search as you type" proved to be complex and did
     *   **Mitigation:** Reordered the input processing to ensure `search_term` is updated before the prompt is displayed. Added a `time.sleep(0.1)` in the "search" mode loop to prevent rapid screen clearing and allow for more stable input.
 
 ## Next Steps
-1.  **Modify `aegis-cli.py` for "Enter-to-Search":** Adjust the main interactive loop to accept a search term via `input()` (or similar) and apply the filter only after the user presses Enter.
-2.  **Retain "Search as you type" code:** Comment out or conditionally disable the existing "search as you type" logic.
-3.  **Update unit tests:** Adjust existing tests or add new ones to cover the "enter-to-search" functionality.
-4.  **Verify functionality:** Run the `aegis-cli.py` application to ensure the new search mechanism works as intended.
-5.  **Commit and push changes:** Perform `git add .`, `git commit`, and `git push` once all verification and testing are complete.
+1.  **Add `ncurses` dependency:** Verify `ncurses` is available or add it to `requirements.txt` if necessary. (Note: `ncurses` is usually a system-level library, and Python's `curses` module uses it).
+2.  **Integrate `ncurses`:** Initialize the `ncurses` screen, handle terminal setup and teardown.
+3.  **Implement TUI display:** Rework the display logic to use `ncurses` functions for printing filtered OTP entries.
+4.  **Handle arrow key input:** Capture `curses.KEY_UP`, `curses.KEY_DOWN` to navigate a selection cursor.
+5.  **Highlight selected entry:** Implement visual highlighting for the currently selected entry.
+6.  **Implement search input (non-`ncurses`):** The search input itself will still use `input()` outside the main `ncurses` loop, applying the filter, and then displaying results in the `ncurses` window.
+7.  **Implement selection and reveal:** On `Enter`, trigger the OTP reveal for the highlighted entry.
+8.  **Exit/Clear search:** On `Esc`, clear the current search and return to the full list.
+9.  **Update unit tests:** Adjust or create new tests to cover the TUI interaction (acknowledging potential limitations in automated environments).
+10. **Verify functionality:** Manually run and test the `aegis-cli.py` application with the new TUI.
+11. **Clean up:** Remove temporary `test_ncurses.py` file.
+12. **Commit and push changes:** Perform `git add .`, `git commit`, and `git push` once all verification and testing are complete.
 
