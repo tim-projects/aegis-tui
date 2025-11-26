@@ -65,7 +65,7 @@ def cli_main(stdscr, args, password):
         curses_colors_enabled = True
 
     # Define color attributes to be used with addstr
-    DIM_COLOR = curses.color_pair(3)
+    DIM_COLOR = curses.color_pair(1) # Using white for 'dim' for better visibility
     BOLD_WHITE_COLOR = curses.A_BOLD | curses.color_pair(1) # For revealed OTP, bold white on default background
     HIGHLIGHT_COLOR = curses.color_pair(2) # For selected row in search mode
 
@@ -123,12 +123,14 @@ def cli_main(stdscr, args, password):
         stdscr.addstr(row, 0, f"Error decrypting vault: {e}")
         row += 1
         stdscr.refresh()
+        time.sleep(3) # Display error message for 3 seconds before exiting
         return
     except Exception as e:
         import traceback
         stdscr.addstr(row, 0, f"An unexpected error occurred: {e}")
         row += 1
         stdscr.refresh()
+        time.sleep(3) # Display error message for 3 seconds before exiting
         traceback.print_exc()
         return
 
@@ -150,72 +152,77 @@ def cli_main(stdscr, args, password):
         search_term = ""
         current_mode = "search" # Initialize mode
         selected_index_for_reveal = None # Initialize to None
-        selected_row = -1 # Track the currently highlighted row for navigation (-1 for no selection)
-        char = curses.ERR # Initialize char to prevent UnboundLocalError
+                    selected_row = -1 # Track the currently highlighted row for navigation (-1 for no selection)
+                    char = curses.ERR # Initialize char to prevent UnboundLocalError
+                    previous_search_term = "" # Track previous search term to detect changes
+                    
+                    while True:
+                        stdscr.clear() # Clear the screen for each refresh
+                        
+                        otps = get_otps(vault_data)
         
-        while True:
-            stdscr.clear() # Clear the screen for each refresh
-            
-            otps = get_otps(vault_data)
-
-            display_data = []
-            max_name_len = len("Name")
-            max_issuer_len = len("Issuer")
-            max_group_len = len("Group")
-            max_note_len = len("Note")
-
-            group_names = {group.uuid: group.name for group in vault_data.db.groups}
-
-            all_entries = []
-            for idx, entry in enumerate(vault_data.db.entries): # Use enumerate to get the original index
-                resolved_groups = []
-                for group_uuid in entry.groups:
-                    resolved_groups.append(group_names.get(group_uuid, group_uuid))
-                
-                if args.group and args.group not in resolved_groups:
-                    continue
-
-                all_entries.append({
-                    "index": idx, # Add the original index
-                    "name": entry.name,
-                    "issuer": entry.issuer if entry.issuer else "",
-                    "groups": ", ".join(resolved_groups) if resolved_groups else "",
-                    "note": entry.note if entry.note else "",
-                    "uuid": entry.uuid
-                })
-            
-            # Sort alphabetically by issuer
-            all_entries.sort(key=lambda x: x["issuer"].lower())
-
-            # Display all entries, search will only move the cursor
-            display_data = all_entries
-
-            # Adjust selected_row based on search_term
-            if search_term:
-                found_match_in_search = False
-                for idx, entry in enumerate(all_entries):
-                    search_string = f"{entry['issuer']} {entry['name']} {entry['groups']} {entry['note']}".lower()
-                    if search_term.lower() in search_string:
-                        selected_row = idx
-                        found_match_in_search = True
-                        break
-                if not found_match_in_search and len(all_entries) > 0:
-                    # If current search_term doesn't match anything, keep previous selection if valid
-                    # Otherwise, if no entries, selected_row should be -1.
-                    pass # selected_row remains as is from previous iteration, or -1 if no entries
-                elif not all_entries: # If no entries at all
-                    selected_row = -1
-            elif not all_entries: # No search term and no entries
-                selected_row = -1
-            else: # No search term, but entries exist, default to first entry
-                selected_row = 0
-
-            # Ensure selected_row is always within the valid bounds of display_data (all_entries)
-            if len(display_data) > 0:
-                selected_row = max(0, min(selected_row, len(display_data) - 1))
-            else:
-                selected_row = -1
-
+                        display_data = []
+                        max_name_len = len("Name")
+                        max_issuer_len = len("Issuer")
+                        max_group_len = len("Name") # Group max length to avoid overflow
+                        max_note_len = len("Note")
+        
+                        group_names = {group.uuid: group.name for group in vault_data.db.groups}
+        
+                        all_entries = []
+                        for idx, entry in enumerate(vault_data.db.entries): # Use enumerate to get the original index
+                            resolved_groups = []
+                            for group_uuid in entry.groups:
+                                resolved_groups.append(group_names.get(group_uuid, group_uuid))
+                            
+                            if args.group and args.group not in resolved_groups:
+                                continue
+        
+                            all_entries.append({
+                                "index": idx, # Add the original index
+                                "name": entry.name,
+                                "issuer": entry.issuer if entry.issuer else "",
+                                "groups": ", ".join(resolved_groups) if resolved_groups else "",
+                                "note": entry.note if entry.note else "",
+                                "uuid": entry.uuid
+                            })
+                        
+                        # Sort alphabetically by issuer
+                        all_entries.sort(key=lambda x: x["issuer"].lower())
+        
+                        # Display all entries, search will only move the cursor
+                        display_data = all_entries
+        
+                        # Adjust selected_row based on search_term
+                        if search_term:
+                            # If search term changed, re-evaluate selected_row to the first match
+                            if search_term != previous_search_term:
+                                found_match_in_search = False
+                                for idx, entry in enumerate(all_entries):
+                                    search_string = f"{entry['issuer']} {entry['name']} {entry['groups']} {entry['note']}".lower()
+                                    if search_term.lower() in search_string:
+                                        selected_row = idx
+                                        found_match_in_search = True
+                                        break
+                                if not found_match_in_search and len(all_entries) > 0:
+                                    # If current search_term doesn't match anything, try to keep previous selection if valid
+                                    if not (0 <= selected_row < len(all_entries)):
+                                        selected_row = 0 # Default to first if previous invalid
+                                elif not all_entries: # If no entries at all
+                                    selected_row = -1
+                            # If search term is the same, keep selected_row as is (potentially from arrow keys)
+                        else: # No search term
+                            if previous_search_term: # If search_term just became empty
+                                selected_row = 0 if len(all_entries) > 0 else -1 # Reset to first or none
+                            # If search_term was already empty, selected_row should be maintained by arrow keys
+        
+                        # Ensure selected_row is always within the valid bounds of display_data (all_entries)
+                        if len(display_data) > 0:
+                            selected_row = max(0, min(selected_row, len(display_data) - 1))
+                        else:
+                            selected_row = -1
+        
+                        previous_search_term = search_term # Update previous search term for next iteration
             for item in display_data:
                 if len(item["name"]) > max_name_len: max_name_len = len(item["name"])
                 if len(item["issuer"]) > max_issuer_len: max_issuer_len = len(item["issuer"])
@@ -291,7 +298,7 @@ def cli_main(stdscr, args, password):
                     elif i == selected_row and current_mode == "search": # Highlight if selected in search mode
                         attribute = HIGHLIGHT_COLOR # Use the new HIGHLIGHT_COLOR
                     else:
-                        attribute = DIM_COLOR
+                        attribute = curses.A_NORMAL # Use standard terminal attributes for unhighlighted items
                 
                 stdscr.addstr(row, 0, line, attribute)
                 row += 1
@@ -321,8 +328,9 @@ def cli_main(stdscr, args, password):
                         revealed_otps.clear()
                         selected_row = 0 if len(all_entries) > 0 else -1 # Reset selection
                     elif char in [curses.KEY_BACKSPACE, 127, 8]: # Backspace key
-                        search_term = search_term[:-1]
-                        selected_row = 0 if len(all_entries) > 0 else -1 # Reset selection for new search term evaluation
+                        if search_term: # Only modify search_term if it's not empty
+                            search_term = search_term[:-1]
+                            selected_row = 0 if len(all_entries) > 0 else -1 # Reset selection for new search term evaluation
                     elif 32 <= char < 127: # Printable character
                         search_term += chr(char)
                         selected_row = 0 if len(all_entries) > 0 else -1 # Reset selection for new search term evaluation
@@ -358,8 +366,11 @@ def cli_main(stdscr, args, password):
                 time.sleep(0.1) # Add a small delay to prevent rapid blinking and allow user to type
 
                 
-            
-            elif current_mode == "reveal" and len(display_data) == 1: # Ensure we are still in a valid reveal state
+            elif current_mode == "reveal": # Ensure we are still in a valid reveal state
+                if not entry_to_reveal: # If we are in reveal mode but no entry was revealed, it's an error state
+                    current_mode = "search"
+                    continue # Go back to search
+                otp_to_reveal = otps[entry_to_reveal["uuid"]].string() # Define otp_to_reveal here
                 # Get the actual time to next refresh
                 actual_ttn = get_ttn()
 
@@ -398,18 +409,16 @@ def cli_main(stdscr, args, password):
                     if char == 27 or char in [curses.KEY_BACKSPACE, 127, 8]: # ESC or Backspace key
                         current_mode = "search"
                         selected_index_for_reveal = None
-                        search_term = ""
-                        revealed_otps.clear()
-                        stdscr.timeout(-1) # Reset timeout to blocking
                         break # Exit the reveal loop
                     elif char == 3: # Ctrl+C
                         raise KeyboardInterrupt
                     # If other keys are pressed, or no key, getch will return ERR after 1 second
 
                 # After countdown finishes (either by ESC/Backspace or OTP expiration)
+                stdscr.timeout(-1) # Reset timeout to blocking upon exiting reveal loop
+                current_mode = "search"
                 search_term = ""
                 revealed_otps.clear()
-                current_mode = "search"
                     
     except KeyboardInterrupt:
         print("\nExiting.")
