@@ -19,10 +19,10 @@ We are now implementing a `ncurses`-based TUI to provide a more intuitive select
     *   **Mitigation:** To be investigated and implemented (likely related to `selected_row` being reset).
 *   **Line numbering is incorrect after sorting:**
     *   **Finding:** The displayed line numbers are the original entry indices, not sequential numbers based on the currently sorted and displayed list. This results in non-contiguous or incorrect numbering.
-    *   **Mitigation:** To be implemented (display `i + 1` from `enumerate(display_data)`).
+    *   **Mitigation:** Modified the display loop to use `i + 1` from `enumerate(display_data)` for sequential numbering.
 *   **Cannot search by typing line number:**
     *   **Finding:** The search functionality only filters by text content, not by the displayed line numbers.
-    *   **Mitigation:** To be implemented (add logic to interpret numeric `search_term` as a line number).
+    *   **Mitigation:** Added logic to prioritize search by line number if `search_term` is purely numeric and within valid bounds. This will set `selected_row` directly.
 *   **Resolved: Type search works fine (moves cursor to first match).**
 *   **Resolved: Enter key correctly initiates Reveal Mode.**
 *   **Resolved: Backspace works correctly in both search and reveal modes.**
