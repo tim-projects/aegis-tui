@@ -152,11 +152,11 @@ def cli_main(stdscr, args, password):
         search_term = ""
         current_mode = "search" # Initialize mode
         selected_index_for_reveal = None # Initialize to None
-                    selected_row = -1 # Track the currently highlighted row for navigation (-1 for no selection)
-                    char = curses.ERR # Initialize char to prevent UnboundLocalError
-                    previous_search_term = "" # Track previous search term to detect changes
-                    
-                    while True:
+        selected_row = -1 # Track the currently highlighted row for navigation (-1 for no selection)
+        char = curses.ERR # Initialize char to prevent UnboundLocalError
+        previous_search_term = "" # Track previous search term to detect changes
+        
+        while True:
                         stdscr.clear() # Clear the screen for each refresh
                         
                         otps = get_otps(vault_data)
