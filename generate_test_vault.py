@@ -25,7 +25,7 @@ except ImportError:
     exit(1)
 
 
-# --- Dataclasses from vault.py (copied to avoid dependency issues) ---
+# --- Dataclasses from vault.py (copied for self-containment) ---
 @dataclass
 class Params:
     nonce: str

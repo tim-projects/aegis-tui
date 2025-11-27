@@ -7,10 +7,10 @@ import readchar
 import importlib.util
 
 # Add the project root to sys.path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 # Load aegis-cli.py as a module
-spec = importlib.util.spec_from_file_location("aegis_tui", os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'aegis-tui.py')))
+spec = importlib.util.spec_from_file_location("aegis_tui", os.path.abspath(os.path.join(os.path.dirname(__file__), 'aegis-tui.py')))
 aegis_tui = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(aegis_tui)
 

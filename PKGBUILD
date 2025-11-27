@@ -16,13 +16,13 @@ build() {
 }
 
 package() {
-  cd "${srcdir}/aegis-tui"
+  cd "${srcdir}"
   # Install Python source files into site-packages
   install -d "${pkgdir}/usr/lib/python3.13/site-packages/aegis_tui"
-  install -m 644 "aegis_core.py" "${pkgdir}/usr/lib/python3.13/site-packages/aegis_cli/"
+  install -m 644 "aegis_core.py" "${pkgdir}/usr/lib/python3.13/site-packages/aegis_tui/"
   install -m 644 "aegis-tui.py" "${pkgdir}/usr/lib/python3.13/site-packages/aegis_tui/"
-  install -m 644 "otp.py" "${pkgdir}/usr/lib/python3.13/site-packages/aegis_cli/"
-  install -m 644 "vault.py" "${pkgdir}/usr/lib/python3.13/site-packages/aegis_cli/"
+  install -m 644 "otp.py" "${pkgdir}/usr/lib/python3.13/site-packages/aegis_tui/"
+  install -m 644 "vault.py" "${pkgdir}/usr/lib/python3.13/site-packages/aegis_tui/"
 
   # Create the executable wrapper script
   install -d "${pkgdir}/usr/bin"
