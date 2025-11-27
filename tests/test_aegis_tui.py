@@ -10,31 +10,31 @@ import importlib.util
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Load aegis-cli.py as a module
-spec = importlib.util.spec_from_file_location("aegis_cli", os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'aegis-cli.py')))
-aegis_cli = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(aegis_cli)
+spec = importlib.util.spec_from_file_location("aegis_tui", os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'aegis-tui.py')))
+aegis_tui = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(aegis_tui)
 
 from aegis_core import OTP, Entry # Corrected import
 
 
-class TestAegisCliInteractive(unittest.TestCase):
+class TestAegisTuiInteractive(unittest.TestCase):
 
     def test_search_as_you_type_single_match_reveal(self):
         with (
-            patch.object(aegis_cli, 'read_and_decrypt_vault_file') as mock_decrypt_vault,
-            patch.object(aegis_cli, 'get_otps') as mock_get_otps,
+            patch.object(aegis_tui, 'read_and_decrypt_vault_file') as mock_decrypt_vault,
+            patch.object(aegis_tui, 'get_otps') as mock_get_otps,
             patch('os.system') as mock_os_system,
             patch('readchar.readkey') as mock_readkey,
             patch('sys.stdout', new_callable=StringIO) as mock_stdout,
             patch('getpass.getpass', return_value='dummy_password') as mock_getpass,
             patch('builtins.input', return_value='dummy_password') as mock_input,
-            patch.object(aegis_cli, 'load_config', return_value={
+            patch.object(aegis_tui, 'load_config', return_value={
                 "last_opened_vault": None,
                 "last_vault_dir": None,
                 "default_color_mode": True
             }) as mock_load_config,
-            patch.object(aegis_cli, 'save_config') as mock_save_config,
-            patch('sys.argv', ['aegis-cli.py', '--vault-path', '/mock/vault/path.json']),
+            patch.object(aegis_tui, 'save_config') as mock_save_config,
+            patch('sys.argv', ['aegis-tui.py', '--vault-path', '/mock/vault/path.json']),
             patch('select.select') as mock_select_select
         ):
             # Mock vault data and OTPs
@@ -76,7 +76,7 @@ class TestAegisCliInteractive(unittest.TestCase):
             mock_select_select.side_effect = select_side_effect
 
             try:
-                mock_curses_wrapper(aegis_cli.cli_main)
+                mock_curses_wrapper(aegis_tui.cli_main)
             except SystemExit:
                 pass # argparse.parse_args() can call sys.exit()
 
@@ -89,20 +89,20 @@ class TestAegisCliInteractive(unittest.TestCase):
 
     def test_search_as_you_type_no_match(self):
         with (
-            patch.object(aegis_cli, 'read_and_decrypt_vault_file') as mock_decrypt_vault,
-            patch.object(aegis_cli, 'get_otps') as mock_get_otps,
+            patch.object(aegis_tui, 'read_and_decrypt_vault_file') as mock_decrypt_vault,
+            patch.object(aegis_tui, 'get_otps') as mock_get_otps,
             patch('os.system') as mock_os_system,
             patch('readchar.readkey') as mock_readkey,
             patch('sys.stdout', new_callable=StringIO) as mock_stdout,
             patch('getpass.getpass', return_value='dummy_password') as mock_getpass,
             patch('builtins.input', return_value='dummy_password') as mock_input,
-            patch.object(aegis_cli, 'load_config', return_value={
+            patch.object(aegis_tui, 'load_config', return_value={
                 "last_opened_vault": None,
                 "last_vault_dir": None,
                 "default_color_mode": True
             }) as mock_load_config,
-            patch.object(aegis_cli, 'save_config') as mock_save_config,
-            patch('sys.argv', ['aegis-cli.py', '--vault-path', '/mock/vault/path.json']),
+            patch.object(aegis_tui, 'save_config') as mock_save_config,
+            patch('sys.argv', ['aegis-tui.py', '--vault-path', '/mock/vault/path.json']),
             patch('select.select') as mock_select_select
         ):
             # Mock vault data and OTPs
@@ -136,7 +136,7 @@ class TestAegisCliInteractive(unittest.TestCase):
             mock_select_select.side_effect = select_side_effect
 
             try:
-                mock_curses_wrapper(aegis_cli.cli_main)
+                mock_curses_wrapper(aegis_tui.cli_main)
             except SystemExit:
                 pass
 
@@ -157,20 +157,20 @@ class TestAegisCliInteractive(unittest.TestCase):
 
     def test_search_as_you_type_multiple_matches_no_reveal(self):
         with (
-            patch.object(aegis_cli, 'read_and_decrypt_vault_file') as mock_decrypt_vault,
-            patch.object(aegis_cli, 'get_otps') as mock_get_otps,
+            patch.object(aegis_tui, 'read_and_decrypt_vault_file') as mock_decrypt_vault,
+            patch.object(aegis_tui, 'get_otps') as mock_get_otps,
             patch('os.system') as mock_os_system,
             patch('readchar.readkey') as mock_readkey,
             patch('sys.stdout', new_callable=StringIO) as mock_stdout,
             patch('getpass.getpass', return_value='dummy_password') as mock_getpass,
             patch('builtins.input', return_value='dummy_password') as mock_input,
-            patch.object(aegis_cli, 'load_config', return_value={
+            patch.object(aegis_tui, 'load_config', return_value={
                 "last_opened_vault": None,
                 "last_vault_dir": None,
                 "default_color_mode": True
             }) as mock_load_config,
-            patch.object(aegis_cli, 'save_config') as mock_save_config,
-            patch('sys.argv', ['aegis-cli.py', '--vault-path', '/mock/vault/path.json']),
+            patch.object(aegis_tui, 'save_config') as mock_save_config,
+            patch('sys.argv', ['aegis-tui.py', '--vault-path', '/mock/vault/path.json']),
             patch('select.select') as mock_select_select
         ):
             # Mock vault data and OTPs
@@ -212,7 +212,7 @@ class TestAegisCliInteractive(unittest.TestCase):
             mock_select_select.side_effect = select_side_effect
 
             try:
-                mock_curses_wrapper(aegis_cli.cli_main)
+                mock_curses_wrapper(aegis_tui.cli_main)
             except SystemExit:
                 pass
 

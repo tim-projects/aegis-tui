@@ -47,6 +47,9 @@ def cli_main(stdscr, args, password):
     curses.curs_set(0)  # Make the cursor invisible
     curses.noecho()     # Turn off automatic echoing of keys to the screen
 
+    # Get terminal dimensions
+    max_rows, max_cols = stdscr.getmaxyx()
+
     # Initialize colors
     curses_colors_enabled = False
     if curses.has_colors():
@@ -57,7 +60,7 @@ def cli_main(stdscr, args, password):
         # Pair 1: Default text (white on default background, but let terminal handle default foreground)
         curses.init_pair(1, curses.COLOR_WHITE, -1)
         # Pair 2: Highlighted item (bold white text on a contrasting background, e.g., blue)
-        curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_CYAN)
+        curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_BLUE)
         # Pair 3: Dim text (gray on default background, or just normal if gray isn't distinct)
         curses.init_pair(3, curses.COLOR_BLACK, -1) # Using black for 'dim' on light default backgrounds
 
@@ -285,6 +288,8 @@ def cli_main(stdscr, args, password):
 
             # Print formatted output
             for i, item in enumerate(display_data): # Use enumerate to get the index for highlighting
+                if row >= max_rows - 2: # Leave space for the input prompt
+                    break
                 # index = item["index"] # Removed as we are now using sequential i+1
                 name = item["name"]
                 issuer = item["issuer"]
