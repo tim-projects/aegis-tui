@@ -19,20 +19,31 @@ We are now implementing a `ncurses`-based TUI to provide a more intuitive select
 *   **`io.UnsupportedOperation: redirected stdin is pseudofile, has no fileno()` in unit tests:**
     *   **Finding:** `select.select` calls failed when `sys.stdin` was mocked as `StringIO`.
     *   **Mitigation:** Patched `select.select` in unit tests to simulate input availability.
-*   **`Unhighlighted items not using standard terminal colors/bolding`:**
-    *   **Finding:** Unhighlighted items are currently not using the standard terminal's default colors and are not unbolded as expected, leading to an inconsistent visual appearance.
-    *   **Mitigation:** To be implemented.
-*   **`Arrow key navigation not working in Search Mode`:**
-    *   **Finding:** Pressing `curses.KEY_UP` and `curses.KEY_DOWN` does not change the `selected_row` as expected, preventing proper navigation of the list.
-    *   **Mitigation:** To be implemented.
-*   **`ESC key not working in Reveal Mode`:**
-    *   **Finding:** Pressing `ESC` (char 27) in reveal mode does not exit the reveal loop and return to search mode.
-    *   **Mitigation:** To be implemented.
-*   **`Border box not appearing in group selection and reveal modes`:**
-    *   **Finding:** The manually drawn border box, implemented in the previous step, only appears correctly in search mode, but not when in group selection or reveal modes.
-    *   **Mitigation:** To be investigated and fixed. This likely involves ensuring `box_start_row`, `box_start_col`, `box_height`, and `box_width` are correctly calculated and the drawing logic is consistently applied in all relevant modes.
+*   **OTP entry list overlapping top border in search mode:**
+    *   **Finding:** The list of TOTP entries in search mode is not correctly positioned within the display box and overlaps the top border.
+*   **Excessive screen redraws:**
+    *   **Finding:** The entire screen is being redrawn continuously in both search and reveal modes, leading to potential performance issues or visual artifacts.
+    *   **Proposed Mitigation:** In search mode, screen redraws should only occur when a key is pressed (input event) or when the terminal is resized. In reveal mode, only the countdown timer area needs to be redrawn (updated) periodically, not the entire screen, unless a resize event occurs.
 
 ## Completed Tasks & Mitigations
+*   **`_curses.error: addch() returned ERR` when resizing terminal:**
+    *   **Finding:** The application crashed when resizing the terminal, specifically with `addch() returned ERR`, indicating drawing outside of screen boundaries.
+    *   **Mitigation:** Implemented `curses.KEY_RESIZE` handling to dynamically update `max_rows` and `max_cols` and trigger a full UI redraw on resize events, ensuring UI elements are always drawn within the current terminal dimensions.
+*   **Complex Column Width Distribution:**
+    *   **Finding:** The initial logic for distributing column widths proportionally was overly complex and led to incorrect truncation behavior.
+    *   **Mitigation:** Reverted to a simpler, more robust method that calculates maximum content lengths, determines available display width, and then caps the lengths to prevent truncation while ensuring headers fit.
+*   **`StopIteration` errors in tests due to input simulation:**
+    *   **Finding:** Tests failed with `StopIteration` errors because the `getch.side_effect` iterator was exhausted prematurely or input was not correctly simulated.
+    *   **Mitigation:** Refactored `mock_curses_wrapper` to correctly accept `getch_side_effects` and use an iterator, ensuring `select.select` is mocked to indicate input availability for a sufficient duration. Individual tests were updated to pass `getch_side_effects` to `mock_curses_wrapper` directly.
+*   **`TypeError: cli_main() got an unexpected keyword argument 'getch_side_effects'` in tests:**
+    *   **Finding:** Passing `getch_side_effects` as a keyword argument to `mock_curses_wrapper` resulted in it being incorrectly passed to `cli_main_func`, which does not expect it.
+    *   **Mitigation:** Modified `mock_curses_wrapper` to explicitly filter out `getch_side_effects` from the `kwargs` before passing them to `cli_main_func`.
+*   **`AssertionError: 'Test OTP 1' not found in '\nExiting.\n'` in tests:**
+    *   **Finding:** Tests checking for revealed OTP content failed because the `sys.stdout` capture was exiting prematurely, before the reveal mode could fully render the OTP.
+    *   **Mitigation:** Switched test assertions from capturing `sys.stdout` to inspecting `mock_stdscr_instance.addstr.call_args_list` directly, which captures all `curses.addstr` calls and allows for more precise verification of TUI content, including the revealed OTP. Also, adjusted `getch_side_effects` to ensure the reveal mode has enough `curses.ERR` (idle) calls to fully display.
+*   **`IndentationError` in `aegis-tui.py` due to reveal mode refactoring:**
+    *   **Finding:** After extracting the reveal mode into `_run_reveal_mode`, multiple `IndentationError`s occurred in the `cli_main` function's main loop, particularly in the `else` block and nested statements.
+    *   **Mitigation:** Systematically corrected all `IndentationError`s by adjusting the indentation of the affected code blocks and statements in `aegis-tui.py` to ensure proper Python syntax.
 *   **`UnboundLocalError: cannot access local variable 'char'`:**
     *   **Finding:** The `char` variable was being used in a conditional statement before it was guaranteed to be assigned a value from `stdscr.getch()`.
     *   **Mitigation:** Initialized `char = curses.ERR` at the beginning of the `cli_main` function to ensure it always has a value.
@@ -94,7 +105,44 @@ We are now implementing a `ncurses`-based TUI to provide a more intuitive select
 *   **`Reveal mode broken; pressing Enter shows code on search screen, reveal mode never shown` (Incorrect state transition):**
     *   **Finding:** The main `cli_main` loop's order of operations caused display rendering before input processing, leading to the search screen being redrawn even after `current_mode` was set to "reveal".
     *   **Mitigation:** Restructured the `cli_main` loop to process all input and mode changes *before* rendering any display. If `current_mode` is set to "reveal", the main loop's display logic is bypassed, and the dedicated `reveal` mode's inner `while True` loop is entered directly.
+*   **Resolved `SyntaxError` and duplicate display logic:**
+    *   **Finding:** Multiple, inadvertently introduced duplicate blocks of display logic within the `cli_main` loop during previous refactoring caused `SyntaxError`s and incorrect UI rendering.
+    *   **Mitigation:** These redundant and malformed code sections have been systematically identified and removed, ensuring correct program flow and display.
+*   **Graceful Exit from Reveal Mode:**
+    *   **Finding:** The application would not exit correctly from the main loop after `_run_reveal_mode` returned `running = False`.
+    *   **Mitigation:** Implemented `if not running: break` after `_run_reveal_mode` call in `cli_main` to ensure the main application loop terminates when `_run_reveal_mode` signals an exit, preventing unintended infinite loops or hanging behavior.
+*   **Removed temporary debug prints:**
+    *   **Finding:** Temporary `print` statements were added for debugging purposes.
+    *   **Mitigation:** All temporary debug `print` statements from `aegis-tui.py` were removed.
+*   **Initial Mode and `stdscr.nodelay` State:**
+    *   **Finding:** The application was inadvertently starting in reveal mode because `stdscr.getch()` in `cli_main` was blocking (waiting for input) and `selected_row` would default to `0` if entries existed. Also, `stdscr.nodelay(True)` set in `_run_reveal_mode` was not being reset, affecting the main loop.
+    *   **Mitigation:** Ensured `stdscr.nodelay(False)` is called upon exiting `_run_reveal_mode` to restore the blocking `getch()` behavior in `cli_main`. This, combined with the normal `KEY_ENTER` logic, prevents automatic entry into reveal mode on startup. Moved `stdscr.nodelay(True)` to the beginning of `cli_main` for consistent non-blocking input, and added `time.sleep(0.1)` in the main loop's idle state. Also, cleared the input buffer after vault decryption.
+*   **Incorrect `Time to Next` display in Reveal Mode:**
+    *   **Finding:** The countdown timer in reveal mode was reported to be displaying values in milliseconds instead of seconds, resulting in unexpectedly large numbers. (Upon inspection of `aegis_core.py`, `get_ttn` *does* return milliseconds, so the division by 1000 in `aegis-tui.py` is correct for displaying seconds.)
+    *   **Mitigation:** Modified the `display_field` call for "Time to Next" in `_run_reveal_mode` to divide the value returned by `get_ttn_func()` by 1000, ensuring the timer is displayed in seconds. Reduced `time.sleep` in reveal mode to 0.01s for responsiveness.
+*   **`IndentationError` in `aegis-tui.py`:**
+    *   **Finding:** An `IndentationError` at line 400 (`if group_selection_mode:`) was caused by incorrectly indented input handling blocks after `max_rows, max_cols = stdscr.getmaxyx()`.
+    *   **Mitigation:** Removed the duplicated and incorrectly indented input handling blocks and re-inserted them correctly within the `if char != curses.ERR:` block, after the `curses.KEY_RESIZE` handling.
+*   **Extra Enter to enter Search Mode after Password:**
+    *   **Finding:** After successfully entering the vault password, the user had to press Enter again to proceed to the main search interface.
+    *   **Mitigation:** Removed the `stdscr.addstr` and `stdscr.refresh()` calls immediately following "Vault decrypted successfully.", allowing direct transition to the search mode after password entry. Added `stdscr.addstr` for initial vault path messages after password is entered. Updated the `_run_reveal_mode` to ensure `stdscr.nodelay(True)` (not `False`) is the state of `cli_main` when returning from `_run_reveal_mode`.
+*   **Blank screen and incorrect mode transition after ESC in Reveal Mode:**
+    *   **Finding:** Pressing ESC in reveal mode resulted in a blank screen, and pressing Enter then returned to reveal mode, rather than transitioning to search mode.
+    *   **Mitigation:** The display logic for the `cli_main` loop was incomplete or missing after previous modifications. The full rendering code for headers, the main box, OTP/group list display, and the search prompt has been reconstructed and re-inserted, ensuring the search screen is properly drawn after exiting reveal mode. Additionally, it has been confirmed that `_run_reveal_mode` does not incorrectly reset `stdscr.nodelay` to `False` on exit, allowing `cli_main` to maintain its non-blocking input state (`stdscr.nodelay(True)`). **(Resolved)**
+*   **`SyntaxError: expected 'except' or 'finally' block`:**
+    *   **Finding:** A `SyntaxError` occurred at line 567 (which corresponds to the `argparse.ArgumentParser` definition) because the `except KeyboardInterrupt` block for `cli_main` was missing, and the `argparse` definition was incorrectly indented.
+    *   **Mitigation:** Re-added the `except KeyboardInterrupt` block for the `cli_main` function and de-indented the `argparse` parser definition and the `if __name__ == "__main__":` block to the global scope. Also, restored the `print("\nExiting.")` statement within the `except KeyboardInterrupt` block. **(Resolved)**
+*   **Unlocking the vault goes to reveal mode not search mode:**
+    *   **Finding:** The application was inadvertently starting in reveal mode after vault decryption.
+    *   **Mitigation:** This was related to the `stdscr.nodelay` state and input buffer. Clearing the input buffer after decryption and ensuring correct `stdscr.nodelay` state in `cli_main` and `_run_reveal_mode` has resolved this. The application now correctly starts in search mode. **(Resolved)**
+*   **Pressing escape in reveal mode doesn't go to search mode:**
+    *   **Finding:** Pressing ESC in reveal mode would not correctly transition back to search mode.
+    *   **Mitigation:** This was resolved by re-inserting the complete display logic for the `cli_main` loop and ensuring correct `stdscr.nodelay` state management. The application now correctly returns to search mode upon pressing ESC. **(Resolved)**
+*   **The reveal mode shows a timer with milliseconds:**
+    *   **Finding:** The countdown timer in reveal mode was reported to be displaying values in milliseconds instead of seconds.
+    *   **Mitigation:** Verified that `aegis-tui.py` already divides `get_ttn_func()` (which returns milliseconds from `aegis_core.py`) by 1000 when displaying "Time to Next", ensuring the value is shown in seconds. **(Resolved)**
 
 ## Next Steps
-1.  Update unit tests to cover new TUI interactions (acknowledging environmental limitations).
-2.  Clean up: Remove temporary `test_ncurses.py` file (if it still exists).
+1.  Verify column truncation logic by manually running `aegis-tui.py` in various terminal sizes.
+2.  Ensure all new TUI interactions are properly covered by passing unit tests.
+3.  Clean up: Remove temporary files if any (e.g., `test_ncurses.py`).

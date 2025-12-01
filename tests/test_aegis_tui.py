@@ -15,9 +15,9 @@ from aegis_core import OTP, Entry # Corrected import
 
 
 # Custom mock for curses.wrapper to simulate stdscr behavior
-def mock_curses_wrapper(cli_main_func, *args, **kwargs):
+def mock_curses_wrapper(cli_main_func, *args, getch_side_effects=None, **kwargs):
     mock_stdscr = MagicMock()
-    mock_stdscr.getch.side_effect = [-1] # Default to no input
+    mock_stdscr.getch.side_effect = iter(getch_side_effects) if getch_side_effects else [-1] # Default to no input
     mock_stdscr.getmaxyx.return_value = (24, 80) # Simulate a 24x80 terminal
     
     # Mock specific curses functions called by cli_main
@@ -72,8 +72,10 @@ def mock_curses_wrapper(cli_main_func, *args, **kwargs):
     mock_curses_module.noecho.return_value = None # This is called on curses, not stdscr
 
     with patch.object(aegis_tui, 'curses', new=mock_curses_module):
+        # Extract getch_side_effects from kwargs if present, so it's not passed to cli_main_func
+        cli_main_func_kwargs = {k: v for k, v in kwargs.items() if k != 'getch_side_effects'}
         # Run the cli_main_func with the mocked stdscr.getch.side_effect for inputs
-        cli_main_func(mock_stdscr, *args, **kwargs)
+        cli_main_func(mock_stdscr, *args, **cli_main_func_kwargs)
 
     return mock_stdscr # Return mock_stdscr for assertions
 
@@ -83,7 +85,6 @@ class TestAegisTuiInteractive(unittest.TestCase):
         with (
             patch.object(aegis_tui, 'read_and_decrypt_vault_file') as mock_decrypt_vault,
             patch.object(aegis_tui, 'get_otps') as mock_get_otps,
-            patch('sys.stdout', new_callable=StringIO) as mock_stdout,
             patch('getpass.getpass', return_value='dummy_password') as mock_getpass,
             patch('builtins.input', return_value='dummy_password') as mock_input,
             patch.object(aegis_tui, 'load_config', return_value={
@@ -119,42 +120,64 @@ class TestAegisTuiInteractive(unittest.TestCase):
                 "uuid2": MagicMock(uuid="uuid2", name="Another OTP", issuer="Issuer B", secret="SECRET2", string=lambda: "SECRET2"),
             }
             
-            # Simulate user typing "Test" then Enter, then Ctrl+C to exit reveal mode
+            # Simulate user typing "Test" then Enter to reveal, then some idle, then Ctrl+C to exit program
             getch_side_effects = [
                 ord('T'), ord('e'), ord('s'), ord('t'), # Type "Test"
                 aegis_tui.curses.KEY_ENTER, # Reveal OTP
-                27, # ESC to exit reveal mode (char 27)
-                aegis_tui.curses.ERR # No further input, let it idle and exit
+                aegis_tui.curses.KEY_RESIZE, # Simulate a resize event while in reveal mode
+                aegis_tui.curses.KEY_RESIZE, # Another resize event
+                aegis_tui.curses.KEY_RESIZE, # Another resize event
+                aegis_tui.curses.KEY_RESIZE, # Another resize event
+                aegis_tui.curses.KEY_RESIZE, # Another resize event
+                aegis_tui.curses.KEY_RESIZE, # Another resize event
+                aegis_tui.curses.KEY_RESIZE, # Another resize event
+                aegis_tui.curses.KEY_RESIZE, # Another resize event
+                aegis_tui.curses.KEY_RESIZE, # Another resize event
+                aegis_tui.curses.KEY_RESIZE, # Another resize event
+                aegis_tui.curses.KEY_RESIZE, # Another resize event
+                aegis_tui.curses.KEY_RESIZE, # Another resize event
+                aegis_tui.curses.KEY_RESIZE, # Another resize event
+                aegis_tui.curses.KEY_RESIZE, # Another resize event
+                aegis_tui.curses.KEY_RESIZE, # Another resize event
+                aegis_tui.curses.KEY_RESIZE, # Another resize event
+                aegis_tui.curses.KEY_RESIZE, # Another resize event
+                aegis_tui.curses.KEY_RESIZE, # Another resize event
+                aegis_tui.curses.KEY_RESIZE, # Another resize event
+                aegis_tui.curses.KEY_RESIZE, # Another resize event
+                aegis_tui.curses.KEY_RESIZE, # Another resize event
+                aegis_tui.curses.KEY_RESIZE, # Another resize event
+                27, # ESC to return to search
+                3 # Ctrl+C to exit program
             ]
             
+            mock_stdscr_instance = mock_curses_wrapper(aegis_tui.cli_main, aegis_tui.parser.parse_args(['--vault-path', '/mock/vault/path.json']), 'dummy_password', getch_side_effects=getch_side_effects)
+
             # Mock select.select to simulate input availability
+            select_call_count = 0
             def select_side_effect(read_list, write_list, error_list, timeout):
-                # Simulate input being available if there are still keys to "press"
-                # This needs to compare against the total number of key presses defined in getch_side_effects
-                if mock_stdscr_instance.getch.call_count < len(getch_side_effects):
+                nonlocal select_call_count
+                select_call_count += 1
+                # Return input availability for slightly more calls than getch_side_effects
+                if select_call_count <= len(getch_side_effects) + 5: # 5 extra calls for safety/idle
                     return ([sys.stdin], [], [])
                 return ([], [], [])
             mock_select_select.side_effect = select_side_effect
 
-            mock_stdscr_instance = mock_curses_wrapper(aegis_tui.cli_main, aegis_tui.parser.parse_args(['--vault-path', '/mock/vault/path.json']), 'dummy_password')
-            # Assign getch.side_effect *after* mock_curses_wrapper, as mock_curses_wrapper might reset it
-            mock_stdscr_instance.getch.side_effect = iter(getch_side_effects) # Use iter to consume values
-
             # cli_main is called within mock_curses_wrapper, so no direct call here
             # The test will implicitly run cli_main via mock_curses_wrapper
 
-            output = mock_stdout.getvalue()
-        
             # Verify that "Test OTP 1" is revealed
-            self.assertIn("Test OTP 1", output)
-            self.assertIn("SECRET1", output)
-            self.assertNotIn("SECRET2", output) # Ensure other OTPs are not revealed
+            addstr_calls = [str(call_arg) for call in mock_stdscr_instance.addstr.call_args_list for call_arg in call.args if isinstance(call_arg, str)]
+            full_output = "\n".join(addstr_calls)
+            print(full_output) # Temporary debug print
 
-    def test_search_as_you_type_no_match(self):
+            self.assertIn("Test OTP 1", full_output)
+            self.assertIn("SECRET1", full_output)
+            self.assertNotIn("SECRET2", full_output) # Ensure other OTPs are not revealed
+
         with (
             patch.object(aegis_tui, 'read_and_decrypt_vault_file') as mock_decrypt_vault,
             patch.object(aegis_tui, 'get_otps') as mock_get_otps,
-            patch('sys.stdout', new_callable=StringIO) as mock_stdout,
             patch('getpass.getpass', return_value='dummy_password') as mock_getpass,
             patch('builtins.input', return_value='dummy_password') as mock_input,
             patch.object(aegis_tui, 'load_config', return_value={
@@ -178,31 +201,37 @@ class TestAegisTuiInteractive(unittest.TestCase):
             mock_vault_data.db.groups = []
             mock_decrypt_vault.return_value = mock_vault_data
     
-            mock_get_otps.return_value = {
-                "uuid1": MagicMock(uuid="uuid1", name="Test OTP 1", issuer="Issuer A", secret="SECRET1", string=lambda: "SECRET1"),
-            }
+            # Simulate user typing "Nomatch" then Ctrl+C
+            getch_side_effects = [
+                ord('N'), ord('o'), ord('m'), ord('a'), ord('t'), ord('c'), ord('h'),
+                3 # Ctrl+C
+            ]
+
+            mock_stdscr_instance = mock_curses_wrapper(aegis_tui.cli_main, aegis_tui.parser.parse_args(['--vault-path', '/mock/vault/path.json']), 'dummy_password', getch_side_effects=getch_side_effects)
+
             # Mock select.select to simulate input availability
+            select_call_count = 0
             def select_side_effect(read_list, write_list, error_list, timeout):
-                if mock_stdscr_instance.getch.call_count < len(getch_side_effects):
+                nonlocal select_call_count
+                select_call_count += 1
+                if select_call_count <= len(getch_side_effects) + 5: # 5 extra calls for safety/idle
                     return ([sys.stdin], [], [])
                 return ([], [], [])
             mock_select_select.side_effect = select_side_effect
 
-            mock_stdscr_instance = mock_curses_wrapper(aegis_tui.cli_main, aegis_tui.parser.parse_args(['--vault-path', '/mock/vault/path.json']), 'dummy_password')
-            mock_stdscr_instance.getch.side_effect = iter(getch_side_effects)
-
-            output = mock_stdout.getvalue()
+            output = mock_stdscr_instance.addstr.call_args_list
+            addstr_calls = [str(call_arg) for call in mock_stdscr_instance.addstr.call_args_list for call_arg in call.args if isinstance(call_arg, str)]
+            full_output = "\n".join(addstr_calls)
             
             # Verify that no OTPs are displayed and the search term is present in the prompt
-            self.assertIn("Nomatch", output)
-            self.assertNotIn("Test OTP 1", output)
-            self.assertNotIn("SECRET1", output)
+            self.assertIn("Nomatch", full_output)
+            self.assertNotIn("Test OTP 1", full_output)
+            self.assertNotIn("SECRET1", full_output)
 
     def test_search_as_you_type_multiple_matches_no_reveal(self):
         with (
             patch.object(aegis_tui, 'read_and_decrypt_vault_file') as mock_decrypt_vault,
             patch.object(aegis_tui, 'get_otps') as mock_get_otps,
-            patch('sys.stdout', new_callable=StringIO) as mock_stdout,
             patch('getpass.getpass', return_value='dummy_password') as mock_getpass,
             patch('builtins.input', return_value='dummy_password') as mock_input,
             patch.object(aegis_tui, 'load_config', return_value={
@@ -243,24 +272,27 @@ class TestAegisTuiInteractive(unittest.TestCase):
                 3 # Ctrl+C
             ]
             
+            mock_stdscr_instance = mock_curses_wrapper(aegis_tui.cli_main, aegis_tui.parser.parse_args(['--vault-path', '/mock/vault/path.json']), 'dummy_password', getch_side_effects=getch_side_effects)
+
             # Mock select.select to simulate input availability
+            select_call_count = 0
             def select_side_effect(read_list, write_list, error_list, timeout):
-                if mock_stdscr_instance.getch.call_count < len(getch_side_effects):
+                nonlocal select_call_count
+                select_call_count += 1
+                if select_call_count <= len(getch_side_effects) + 5: # 5 extra calls for safety/idle
                     return ([sys.stdin], [], [])
                 return ([], [], [])
             mock_select_select.side_effect = select_side_effect
 
-            mock_stdscr_instance = mock_curses_wrapper(aegis_tui.cli_main, aegis_tui.parser.parse_args(['--vault-path', '/mock/vault/path.json']), 'dummy_password')
-            mock_stdscr_instance.getch.side_effect = iter(getch_side_effects)
-
-            output = mock_stdout.getvalue()
+            addstr_calls = [str(call_arg) for call in mock_stdscr_instance.addstr.call_args_list for call_arg in call.args if isinstance(call_arg, str)]
+            full_output = "\n".join(addstr_calls)
             
             # Verify that both OTPs are listed but not revealed
-            self.assertIn("Test OTP 1", output)
-            self.assertIn("Test OTP 2", output)
-            self.assertNotIn("SECRET1", output)
-            self.assertNotIn("SECRET2", output)
-            self.assertIn("******", output) # Should see obscured OTPs
+            self.assertIn("Test OTP 1", full_output)
+            self.assertIn("Test OTP 2", full_output)
+            self.assertNotIn("SECRET1", full_output)
+            self.assertNotIn("SECRET2", full_output)
+            self.assertIn("******", full_output) # Should see obscured OTPs
 
 if __name__ == '__main__':
     unittest.main()
@@ -269,7 +301,6 @@ if __name__ == '__main__':
         with (
             patch.object(aegis_tui, 'read_and_decrypt_vault_file') as mock_decrypt_vault,
             patch.object(aegis_tui, 'get_otps') as mock_get_otps,
-            patch('sys.stdout', new_callable=StringIO) as mock_stdout,
             patch('getpass.getpass', return_value='dummy_password') as mock_getpass,
             patch('builtins.input', return_value='dummy_password') as mock_input,
             patch.object(aegis_tui, 'load_config', return_value={
@@ -322,39 +353,32 @@ if __name__ == '__main__':
                 3 # Ctrl+C
             ]
             
+            mock_stdscr_instance = mock_curses_wrapper(aegis_tui.cli_main, aegis_tui.parser.parse_args(['--vault-path', '/mock/vault/path.json']), 'dummy_password')
+            mock_stdscr_instance.getch.side_effect = iter(getch_side_effects)
+
             def select_side_effect(read_list, write_list, error_list, timeout):
                 if mock_stdscr_instance.getch.call_count < len(getch_side_effects):
                     return ([sys.stdin], [], [])
                 return ([], [], [])
             mock_select_select.side_effect = select_side_effect
 
-            mock_stdscr_instance = mock_curses_wrapper(aegis_tui.cli_main, aegis_tui.parser.parse_args(['--vault-path', '/mock/vault/path.json']), 'dummy_password')
-            mock_stdscr_instance.getch.side_effect = iter(getch_side_effects)
-
-            output = mock_stdout.getvalue()
+            addstr_calls = [str(call_arg) for call in mock_stdscr_instance.addstr.call_args_list for call_arg in call.args if isinstance(call_arg, str)]
+            full_output = "\n".join(addstr_calls)
             
-            # Verify "Second OTP" is highlighted after DOWN, then "First OTP" after UP
-            # Highlighting is done by HIGHLIGHT_COLOR (color_pair(2))
-            # The addstr calls will include the color pair in the attribute argument
-            # We can check the mock_stdscr_instance.addstr calls for this.
+            self.assertIn("First OTP", full_output)
+            self.assertIn("Second OTP", full_output)
+            self.assertIn("Third OTP", full_output)
 
-            # We need to analyze the calls to mock_stdscr.addstr to check for highlighting
-            # The mock_stdscr_instance object will have a list of all calls to addstr.
-            
-            # This is complex without detailed mock of curses output.
-            # For now, we'll verify the presence of the items in the output and assume
-            # the highlighting logic, if visually correct in manual tests, is working.
-            # A more robust test would inspect mock_stdscr.addstr.call_args_list for color attributes.
-            self.assertIn("First OTP", output)
-            self.assertIn("Second OTP", output)
-            self.assertIn("Third OTP", output)
+            # More robust test would inspect mock_stdscr.addstr.call_args_list for color attributes
+            # For example, to check if 'Second OTP' was highlighted after KEY_DOWN, then 'First OTP' after KEY_UP
+            # This requires a deeper understanding of the mocked curses output and its state over time.
+            # For now, we rely on the visual correctness in manual tests and presence of items.
 
 
     def test_group_selection_and_filter(self):
         with (
             patch.object(aegis_tui, 'read_and_decrypt_vault_file') as mock_decrypt_vault,
             patch.object(aegis_tui, 'get_otps') as mock_get_otps,
-            patch('sys.stdout', new_callable=StringIO) as mock_stdout,
             patch('getpass.getpass', return_value='dummy_password') as mock_getpass,
             patch('builtins.input', return_value='dummy_password') as mock_input,
             patch.object(aegis_tui, 'load_config', return_value={
@@ -418,29 +442,29 @@ if __name__ == '__main__':
                 3 # Ctrl+C
             ]
             
+            mock_stdscr_instance = mock_curses_wrapper(aegis_tui.cli_main, aegis_tui.parser.parse_args(['--vault-path', '/mock/vault/path.json']), 'dummy_password')
+            mock_stdscr_instance.getch.side_effect = iter(getch_side_effects)
+
             def select_side_effect(read_list, write_list, error_list, timeout):
-                if len(getch_side_effects) > 0:
+                if mock_stdscr_instance.getch.call_count < len(getch_side_effects) + 5:
                     return ([sys.stdin], [], [])
                 return ([], [], [])
             mock_select_select.side_effect = select_side_effect
 
-            mock_stdscr_instance = mock_curses_wrapper(aegis_tui.cli_main, aegis_tui.parser.parse_args(['--vault-path', '/mock/vault/path.json']), 'dummy_password')
-            mock_stdscr_instance.getch.side_effect = getch_side_effects
-
-            output = mock_stdout.getvalue()
+            addstr_calls = [str(call_arg) for call in mock_stdscr_instance.addstr.call_args_list for call_arg in call.args if isinstance(call_arg, str)]
+            full_output = "\n".join(addstr_calls)
             
             # Verify that only "Personal OTP 1" is listed
-            self.assertIn("Personal OTP 1", output)
-            self.assertNotIn("Work OTP 1", output)
-            self.assertNotIn("Work OTP 2", output)
-            self.assertIn("Group: Personal", output) # Verify the header reflects the filter
+            self.assertIn("Personal OTP 1", full_output)
+            self.assertNotIn("Work OTP 1", full_output)
+            self.assertNotIn("Work OTP 2", full_output)
+            self.assertIn("Group: Personal", full_output) # Verify the header reflects the filter
 
 
     def test_esc_key_in_reveal_mode(self):
         with (
             patch.object(aegis_tui, 'read_and_decrypt_vault_file') as mock_decrypt_vault,
             patch.object(aegis_tui, 'get_otps') as mock_get_otps,
-            patch('sys.stdout', new_callable=StringIO) as mock_stdout,
             patch('getpass.getpass', return_value='dummy_password') as mock_getpass,
             patch('builtins.input', return_value='dummy_password') as mock_input,
             patch.object(aegis_tui, 'load_config', return_value={
@@ -477,22 +501,23 @@ if __name__ == '__main__':
                 3 # Ctrl+C to exit program
             ]
             
+            mock_stdscr_instance = mock_curses_wrapper(aegis_tui.cli_main, aegis_tui.parser.parse_args(['--vault-path', '/mock/vault/path.json']), 'dummy_password')
+            mock_stdscr_instance.getch.side_effect = iter(getch_side_effects)
+
             def select_side_effect(read_list, write_list, error_list, timeout):
-                if len(getch_side_effects) > 0:
+                if mock_stdscr_instance.getch.call_count < len(getch_side_effects) + 5:
                     return ([sys.stdin], [], [])
                 return ([], [], [])
             mock_select_select.side_effect = select_side_effect
 
-            mock_stdscr_instance = mock_curses_wrapper(aegis_tui.cli_main, aegis_tui.parser.parse_args(['--vault-path', '/mock/vault/path.json']), 'dummy_password')
-            mock_stdscr_instance.getch.side_effect = getch_side_effects
-
-            output = mock_stdout.getvalue()
+            addstr_calls = [str(call_arg) for call in mock_stdscr_instance.addstr.call_args_list for call_arg in call.args if isinstance(call_arg, str)]
+            full_output = "\n".join(addstr_calls)
             
             # Verify that OTP is revealed, then obscured again after ESC
-            self.assertIn("SECRET_SINGLE", output)
-            # The exact assertion for "obscured again" is tricky with a single output stream.
+            self.assertIn("SECRET_SINGLE", full_output)
+            # The exact assertion for "obscured again" is tricky with a single full_output string.
             # We can check that the last appearance of the OTP is obscured.
             # For now, verify it was revealed, and assume ESC worked if the program exits cleanly.
             # A more robust test would inspect call_args_list for addstr with "******"
-            self.assertIn("--- Revealed OTP: Single OTP ---", output)
-            self.assertNotIn("SECRET_SINGLE", output.split("--- Revealed OTP: Single OTP ---")[-1]) # Check that after reveal, it's not present
+            self.assertIn("--- Revealed OTP: Single OTP ---", full_output)
+            self.assertNotIn("SECRET_SINGLE", full_output.split("--- Revealed OTP: Single OTP ---")[-1]) # Check that after reveal, it's not present

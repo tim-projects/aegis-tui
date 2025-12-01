@@ -44,6 +44,7 @@ def save_config(config):
 
 def cli_main(stdscr, args, password):
     stdscr.keypad(True) # Enable special keys like arrow keys
+    stdscr.nodelay(True) # Make getch non-blocking by default for continuous refresh
 
     # Get terminal dimensions
     max_rows, max_cols = stdscr.getmaxyx()
@@ -61,6 +62,8 @@ def cli_main(stdscr, args, password):
         curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_BLUE)
         # Pair 3: Dim text (gray on default background, or just normal if gray isn't distinct)
         curses.init_pair(3, curses.COLOR_BLACK, -1) # Using black for 'dim' on light default backgrounds
+        # Pair 4: Highlighted OTP code in reveal mode
+        curses.init_pair(4, curses.COLOR_BLACK, curses.COLOR_CYAN) # Black text on cyan background for highlighting
 
         curses_colors_enabled = True
 
@@ -68,6 +71,7 @@ def cli_main(stdscr, args, password):
     NORMAL_TEXT_COLOR = curses.color_pair(1) # For normal text (white on default background)
     BOLD_WHITE_COLOR = curses.A_BOLD | NORMAL_TEXT_COLOR # For revealed OTP, bold white on default background
     HIGHLIGHT_COLOR = curses.color_pair(2) # For selected row in search mode
+    REVEAL_HIGHLIGHT_COLOR = curses.color_pair(4) # For highlighting OTP code in reveal mode
 
     config = load_config()
 
@@ -77,8 +81,6 @@ def cli_main(stdscr, args, password):
         args.no_color = True
 
     vault_path = args.vault_path
-    if not vault_path and args.positional_vault_path and args.positional_vault_path.endswith(".json"):
-        vault_path = args.positional_vault_path
 
     row = 0
     if not vault_path and config["last_opened_vault"]:
@@ -112,13 +114,14 @@ def cli_main(stdscr, args, password):
 
     try:
         vault_data = read_and_decrypt_vault_file(vault_path, password)
-        stdscr.addstr(row, 0, "Vault decrypted successfully.")
-        row += 1
-        stdscr.refresh()
         # Save the successfully opened vault path to config
         config["last_opened_vault"] = vault_path
         config["last_vault_dir"] = os.path.dirname(vault_path)
         save_config(config)
+        # Clear any residual input from the buffer (e.g., Enter key after password)
+        while stdscr.getch() != curses.ERR:
+            pass
+
     except ValueError as e:
         stdscr.addstr(row, 0, f"Error decrypting vault: {e}")
         row += 1
@@ -134,7 +137,7 @@ def cli_main(stdscr, args, password):
         traceback.print_exc()
         return
 
-    if args.uuid:
+    if args.uuid and not args.group: # Only process as a direct display if a UUID is provided and no group filter
         otps = get_otps(vault_data)
         if args.uuid in otps:
             otp_entry = otps[args.uuid]
@@ -145,8 +148,107 @@ def cli_main(stdscr, args, password):
             stdscr.addstr(row, 0, f"Error: No entry found with UUID {args.uuid}.")
             row += 1
             stdscr.refresh()
+        return # Exit after displaying the single OTP
 
-    # Main interactive loop for search and reveal modes
+    def _run_reveal_mode(stdscr, entry_to_reveal, otps, revealed_otps, get_ttn_func, current_config, initial_max_rows, initial_max_cols, curses_colors_enabled, display_list):
+        current_mode = "reveal"
+        running = True
+        max_rows, max_cols = initial_max_rows, initial_max_cols # Initial dimensions
+        selected_row = 0 # Default to first item in reveal display
+
+        stdscr.nodelay(True) # Make getch non-blocking
+        while current_mode == "reveal" and running:
+            stdscr.clear()
+
+            # Dynamic box dimensions for reveal mode
+            reveal_box_height = max(7, max_rows - 2) # At least 7 lines for content + borders
+            reveal_box_width = max(30, max_cols) # At least 30 cols
+
+            reveal_start_row = (max_rows - reveal_box_height) // 2
+            reveal_start_col = (max_cols - reveal_box_width) // 2
+            
+            # Ensure box dimensions are within screen limits
+            if reveal_start_row < 0: reveal_start_row = 0
+            if reveal_start_col < 0: reveal_start_col = 0
+            if reveal_box_height > max_rows: reveal_box_height = max_rows
+            if reveal_box_width > max_cols: reveal_box_width = max_cols
+
+            # Draw border box for reveal mode
+            # Top line
+            stdscr.addch(reveal_start_row, reveal_start_col, curses.ACS_ULCORNER)
+            stdscr.hline(reveal_start_row, reveal_start_col + 1, curses.ACS_HLINE, reveal_box_width - 2)
+            stdscr.addch(reveal_start_row, reveal_start_col + reveal_box_width - 1, curses.ACS_URCORNER)
+
+            # Middle lines
+            for r in range(reveal_start_row + 1, reveal_start_row + reveal_box_height - 1):
+                stdscr.addch(r, reveal_start_col, curses.ACS_VLINE)
+                stdscr.addch(r, reveal_start_col + reveal_box_width - 1, curses.ACS_VLINE)
+
+            # Bottom line
+            stdscr.addch(reveal_start_row + reveal_box_height - 1, reveal_start_col, curses.ACS_LLCORNER)
+            stdscr.hline(reveal_start_row + reveal_box_height - 1, reveal_start_col + 1, curses.ACS_HLINE, reveal_box_width - 2)
+            stdscr.addch(reveal_start_row + reveal_box_height - 1, reveal_start_col + reveal_box_width - 1, curses.ACS_LRCORNER)
+
+            # Header and OTP display
+            header_text = f"--- Revealed OTP: {entry_to_reveal['name']} ---"
+            stdscr.addstr(reveal_start_row + 1, reveal_start_col + (reveal_box_width - len(header_text)) // 2, header_text, curses.A_BOLD)
+
+            # Display fields
+            display_row = reveal_start_row + 3
+            def display_field(label, value, row_num, col_num, max_w, highlight=False):
+                line = f"{label}: {value}"
+                display_line = line[:max_w] # Truncate if too long
+                
+                # Highlight only if explicitly requested AND value is a secret
+                attr = REVEAL_HIGHLIGHT_COLOR if highlight and label == "OTP Code" else NORMAL_TEXT_COLOR
+                stdscr.addstr(row_num, col_num, display_line, attr)
+
+            inner_width = reveal_box_width - 4 # Account for box borders and padding
+            field_col = reveal_start_col + 2
+
+            otp_to_reveal = otps[entry_to_reveal["uuid"]].string()
+            display_field("Issuer", entry_to_reveal["issuer"], display_row, field_col, inner_width)
+            display_row += 1
+            display_field("Name", entry_to_reveal["name"], display_row, field_col, inner_width)
+            display_row += 1
+            display_field("Group", entry_to_reveal["groups"], display_row, field_col, inner_width)
+            display_row += 1
+            display_field("Note", entry_to_reveal["note"], display_row, field_col, inner_width)
+            display_row += 1
+            display_field("OTP Code", otp_to_reveal, display_row, field_col, inner_width, highlight=True)
+            display_row += 1
+            display_field("Time to Next", f"{get_ttn_func() / 1000}s", display_row, field_col, inner_width)
+
+            # Controls
+            stdscr.addstr(reveal_start_row + reveal_box_height - 2, reveal_start_col + 2, "Press ESC to return to search, Ctrl+C to exit.", NORMAL_TEXT_COLOR)
+
+            stdscr.refresh()
+
+            reveal_char = stdscr.getch()
+            if reveal_char == 27: # ESC key
+                current_mode = "search"
+                revealed_otps.clear()
+                # Do not reset selected_row here, maintain selection from search mode
+                break # Exit reveal loop
+            elif reveal_char == 3: # Ctrl+C
+                running = False
+                break # Exit reveal loop and signal main loop to exit
+            elif reveal_char == curses.KEY_RESIZE: # Handle terminal resize event
+                max_rows, max_cols = stdscr.getmaxyx() # Update dimensions
+                stdscr.clear()
+                stdscr.refresh()
+            elif reveal_char != curses.ERR: # Any other key press, clear revealed OTP and return to search
+                current_mode = "search"
+                revealed_otps.clear()
+                # Do not reset selected_row here
+                break # Exit reveal loop
+            
+            # Add a small delay if no key was pressed to prevent CPU from spinning
+            if reveal_char == curses.ERR:
+                time.sleep(0.01) # Shorter sleep for reveal mode responsiveness
+
+        return current_mode, running, selected_row # Return selected_row as well
+    # --- Main Application Loop ---
     try:
         revealed_otps = set() # Keep track of which OTPs are revealed
         search_term = ""
@@ -247,93 +349,49 @@ def cli_main(stdscr, args, password):
                 for item in display_list:
                     if len(item["name"]) > max_name_len: max_name_len = len(item["name"])
 
+            # Re-adjust max_len for headers to ensure they fit, using the capped values
+            max_name_len = max(len("Name"), max_name_len)
+            max_issuer_len = max(len("Issuer"), max_issuer_len)
+            max_group_len = max(len("Group"), max_group_len)
+            max_note_len = max(len("Note"), max_note_len)
+
             # Now, calculate available content width inside the box
             inner_box_content_width = max(0, box_width - 2) # Account for left and right borders
 
-            # Define fixed spacing and lengths for OTP display mode
-            # Format: # (3) + space (1) + Issuer (max_issuer_len) + 2 spaces + Name (max_name_len) + 2 spaces + Code (6) + 2 spaces + Group (max_group_len) + 2 spaces + Note (max_note_len)
-            # Fixed parts: # (3) + 1 space + 2 spaces + 2 spaces + Code (6) + 2 spaces + 2 spaces = 18
-            fixed_otp_display_width = 3 + 1 + 2 + 2 + 6 + 2 + 2 # Sum of non-dynamic parts
+            # Define minimum widths for fixed elements in OTP display mode (e.g., '#', 'Code', spaces)
+            fixed_otp_display_width = 3 + 1 + 2 + 2 + 6 + 2 # # + space + spaces around name/issuer + code + spaces around group/note
+            # Remaining width for dynamic fields (issuer, name, group, note)
+            remaining_dynamic_width = max(0, inner_box_content_width - fixed_otp_display_width)
 
-            # Fixed parts for Group display mode: # (3) + 1 space = 4
-            fixed_group_display_width = 3 + 1
+            # Define minimum widths for fixed elements in Group display mode
+            fixed_group_display_width = 3 + 1 # # + space
 
+            # Cap max lengths based on available width, prioritizing some fields over others
+            # This is a heuristic to prevent overflow. Adjust ratios as needed.
             if not group_selection_mode:
-                # Minimum widths for dynamic fields (at least header length)
-                min_issuer_len = len("Issuer")
-                min_name_len = len("Name")
-                min_group_len = len("Group")
-                min_note_len = len("Note")
+                # Distribute remaining_dynamic_width. Example: Name (40%), Issuer (30%), Group (20%), Note (10%)
+                max_name_len_cap = int(remaining_dynamic_width * 0.4)
+                max_issuer_len_cap = int(remaining_dynamic_width * 0.3)
+                max_group_len_cap = int(remaining_dynamic_width * 0.2)
+                max_note_len_cap = int(remaining_dynamic_width * 0.1)
 
-                # Initial sum of lengths (based on content or header, whichever is larger)
-                initial_total_dynamic_width = max(min_issuer_len, max_issuer_len) + \
-                                              max(min_name_len, max_name_len) + \
-                                              max(min_group_len, max_group_len) + \
-                                              max(min_note_len, max_note_len)
-                
-                # Available space for dynamic columns after accounting for fixed parts
-                available_dynamic_space = max(0, inner_box_content_width - fixed_otp_display_width)
-
-                # If available space is less than initial total, we need to shrink
-                if available_dynamic_space < initial_total_dynamic_width:
-                    # Calculate how much we need to shrink by
-                    shrinkage = initial_total_dynamic_width - available_dynamic_space
-
-                    # Prioritize shrinking smaller columns less, larger columns more.
-                    # Or, a simpler approach: shrink all proportionally, but not below min.
-                    # For now, let's keep it simple: distribute available space, ensuring min_lengths
-
-                    # Reset current max lengths to their minimums or current content max, whichever is smaller than original max_cols ratio
-                    # This is tricky because we want to prioritize not truncating headers.
-                    # Let's ensure headers always fit first.
-                    max_issuer_len = max(min_issuer_len, max_issuer_len)
-                    max_name_len = max(min_name_len, max_name_len)
-                    max_group_len = max(min_group_len, max_group_len)
-                    max_note_len = max(min_note_len, max_note_len)
-
-                    current_total_lengths = max_issuer_len + max_name_len + max_group_len + max_note_len
-                    if current_total_lengths > available_dynamic_space:
-                        # Need to reduce lengths. This is where it gets complex.
-                        # For simplicity, we'll just set them to a proportional share of available_dynamic_space
-                        # ensuring they don't go below their min_len (header len).
-                        if current_total_lengths > 0: # Avoid division by zero
-                            ratio = available_dynamic_space / current_total_lengths
-                            max_issuer_len = max(min_issuer_len, int(max_issuer_len * ratio))
-                            max_name_len = max(min_name_len, int(max_name_len * ratio))
-                            max_group_len = max(min_group_len, int(max_group_len * ratio))
-                            max_note_len = max(min_note_len, int(max_note_len * ratio))
-                else:
-                    # Distribute remaining space if available_dynamic_space is greater than initial
-                    extra_space = available_dynamic_space - initial_total_dynamic_width
-                    if initial_total_dynamic_width > 0: # Avoid division by zero
-                        prop_issuer = max_issuer_len / initial_total_dynamic_width
-                        prop_name = max_name_len / initial_total_dynamic_width
-                        prop_group = max_group_len / initial_total_dynamic_width
-                        prop_note = max_note_len / initial_total_dynamic_width
-
-                        max_issuer_len += int(extra_space * prop_issuer)
-                        max_name_len += int(extra_space * prop_name)
-                        max_group_len += int(extra_space * prop_group)
-                        max_note_len += int(extra_space * prop_note)
-
-            else: # group_selection_mode
-                min_name_len = len("Group Name") # Minimum width for group name
-
-                # Available space for the group name column
-                available_group_name_space = max(0, inner_box_content_width - fixed_group_display_width)
-
-                # Ensure group name column is not smaller than its header
-                max_name_len = max(min_name_len, max_name_len)
-
-                # Distribute remaining space if available
-                extra_space = available_group_name_space - max_name_len
-                if extra_space > 0:
-                    max_name_len += extra_space
+                max_name_len = min(max_name_len, max_name_len_cap)
+                max_issuer_len = min(max_issuer_len, max_issuer_len_cap)
+                max_group_len = min(max_group_len, max_group_len_cap)
+                max_note_len = min(max_note_len, max_note_len_cap)
+            else:
+                # For group selection, the entire remaining width is for the group name
+                max_name_len = min(max_name_len, max(0, inner_box_content_width - fixed_group_display_width))
             
             # --- Input Handling (NOW FIRST in loop) ---
             char = stdscr.getch() # Get a single character
 
             if char != curses.ERR: # Only process if a key was actually pressed
+                if char == curses.KEY_RESIZE:
+                    max_rows, max_cols = stdscr.getmaxyx()
+                    stdscr.clear()
+                    stdscr.refresh()
+                    continue
                 if group_selection_mode:
                     if char == curses.KEY_UP:
                         if selected_row == 0: # If at the first group, move to "All OTPs"
@@ -398,252 +456,127 @@ def cli_main(stdscr, args, password):
                         # Handle reveal logic: set entry_to_reveal, current_mode = "reveal"
                         if selected_row != -1 and len(display_list) > 0:
                             entry_to_reveal = display_list[selected_row] # Make sure this is correct
-                            if entry_to_reveal:
-                                if entry_to_reveal["uuid"] not in revealed_otps:
-                                    revealed_otps.add(entry_to_reveal["uuid"])
-                                current_mode = "reveal"
-                                selected_row = 0 # Reset selected_row after revealing
-                                # No need for 'continue' here, the conditional display will handle it
-                        
-            # Add a small delay if no key was pressed to prevent CPU from spinning
-            if char == curses.ERR and current_mode != "reveal":
-                time.sleep(0.1)
+                            if entry_to_reveal["uuid"] not in revealed_otps:
+                                revealed_otps.add(entry_to_reveal["uuid"])
+                            # Call reveal mode directly and let it handle its own loop
+                            current_mode, running, selected_row = _run_reveal_mode(stdscr, entry_to_reveal, otps, revealed_otps, get_ttn, config, max_rows, max_cols, curses_colors_enabled, display_list)
+                            # After reveal mode, reset current_mode to search and clear revealed OTPs
+                            current_mode = "search"
+                            revealed_otps.clear()
+                            
+            stdscr.clear() # Clear screen for each refresh
+            # Update max_rows and max_cols at the beginning of each display cycle
+            max_rows, max_cols = stdscr.getmaxyx()
 
-            # --- Conditional Display (NOW SECOND in loop) ---
-            if current_mode == "reveal":
-                # This block now contains the dedicated reveal loop
-                if not entry_to_reveal: # Should not happen if previous logic is correct
-                    current_mode = "search"
-                    continue # Go back to search
+            row = 0 # Reset row for each refresh
+            header_row_offset = 0 # Offset for content after headers
 
-                otp_to_reveal = otps[entry_to_reveal["uuid"]].string() # Define otp_to_reveal here
-                # Get the actual time to next refresh
-                actual_ttn = get_ttn()
+            # Print main header based on mode, search, and group filter
+            if group_selection_mode:
+                stdscr.addstr(row, 0, "--- Select Group (Ctrl+G/Esc to cancel) ---")
+            elif current_mode == "search":
+                if current_group_filter:
+                    stdscr.addstr(row, 0, f"--- Group: {current_group_filter} (Ctrl+G to clear) ---")
+                elif search_term:
+                    stdscr.addstr(row, 0, f"--- Search: {search_term} ---")
+                elif args.group:
+                    stdscr.addstr(row, 0, f"--- Group: {args.group} ---")
+                else:
+                    stdscr.addstr(row, 0, "--- All OTPs ---") # This will be the main header if no filters
+            row += 1
+            header_row_offset = row # Remember where content starts after header
 
-                # Loop to keep OTP revealed until ESC is pressed
-                while True:
-                    current_remaining_ttn = get_ttn() # Get updated ttn in each iteration
-                    remaining_seconds_for_display = int(current_remaining_ttn / 1000)
+            # Draw border box for the main display area
+            box_height = max_rows - header_row_offset - 2 # Account for header, prompt, and bottom border
+            box_width = max_cols
+            
+            # Ensure minimum dimensions for the box
+            if box_height < 2: box_height = 2
+            if box_width < 2: box_width = 2
 
-                    if PYPERCLIP_AVAILABLE:
-                        pyperclip.copy(otp_to_reveal)
-                    stdscr.clear() # Clear for each countdown second
-                    
-                    countdown_row = 0 # Local row counter for reveal mode
-                    stdscr.addstr(countdown_row, 0, f"--- Revealed OTP: {entry_to_reveal['name']} ---")
-                    countdown_row += 1
+            # Top line
+            stdscr.addch(row, 0, curses.ACS_ULCORNER)
+            stdscr.hline(row, 1, curses.ACS_HLINE, box_width - 2)
+            stdscr.addch(row, box_width - 1, curses.ACS_URCORNER)
+            row += 1 # Move past the top border
 
-                    # Define box dimensions for reveal mode. Similar logic to main loop.
-                    reveal_box_start_row = countdown_row
-                    reveal_box_start_col = 0
-                    reveal_box_height = max(2, max_rows - reveal_box_start_row - 1) # 1 for input prompt row
-                    reveal_box_width = max(2, max_cols)
+            # Middle lines
+            for r in range(row, row + box_height - 1): # -1 because the bottom border uses one row
+                stdscr.addch(r, 0, curses.ACS_VLINE)
+                stdscr.addch(r, box_width - 1, curses.ACS_VLINE)
+            
+            # Bottom line
+            stdscr.addch(row + box_height - 1, 0, curses.ACS_LLCORNER)
+            stdscr.hline(row + box_height - 1, 1, curses.ACS_HLINE, box_width - 2)
+            stdscr.addch(row + box_height - 1, box_width - 1, curses.ACS_LRCORNER)
+            
+            # Reset row to start of content area
+            row = header_row_offset
 
-                    # Draw the border box manually for reveal mode
-                    stdscr.attron(curses.A_NORMAL)
-                    stdscr.addch(reveal_box_start_row, reveal_box_start_col, curses.ACS_ULCORNER)
-                    stdscr.hline(reveal_box_start_row, reveal_box_start_col + 1, curses.ACS_HLINE, reveal_box_width - 2)
-                    stdscr.addch(reveal_box_start_row, reveal_box_start_col + reveal_box_width - 1, curses.ACS_URCORNER)
-
-                    stdscr.vline(reveal_box_start_row + 1, reveal_box_start_col, curses.ACS_VLINE, reveal_box_height - 2)
-                    stdscr.vline(reveal_box_start_row + 1, reveal_box_start_col + reveal_box_width - 1, curses.ACS_VLINE, reveal_box_height - 2)
-
-                    stdscr.addch(reveal_box_start_row + reveal_box_height - 1, reveal_box_start_col, curses.ACS_LLCORNER)
-                    stdscr.hline(reveal_box_start_row + reveal_box_height - 1, reveal_box_start_col + 1, curses.ACS_HLINE, reveal_box_width - 2)
-                    stdscr.addch(reveal_box_start_row + reveal_box_height - 1, reveal_box_start_col + reveal_box_width - 1, curses.ACS_LRCORNER)
-                    stdscr.attroff(curses.A_NORMAL)
-
-                    # Adjust countdown_row for content inside the box
-                    countdown_row = reveal_box_start_row + 1
-
-                    # Calculate available content width for reveal mode
-                    inner_reveal_content_width = max(0, reveal_box_width - 2)
-                    fixed_reveal_display_width = 3 + 1 + 2 + 2 + 6 + 2 + 2 + 2 # # + spaces + spaces around name/issuer + code + spaces around group/note
-                    remaining_reveal_dynamic_width = max(0, inner_reveal_content_width - fixed_reveal_display_width)
-
-                    # Cap max lengths for reveal mode display fields
-                    reveal_max_name_len_cap = int(remaining_reveal_dynamic_width * 0.4)
-                    reveal_max_issuer_len_cap = int(remaining_reveal_dynamic_width * 0.3)
-                    reveal_max_group_len_cap = int(remaining_reveal_dynamic_width * 0.2)
-                    reveal_max_note_len_cap = int(remaining_reveal_dynamic_width * 0.1)
-
-                    current_max_issuer_len = max(len("Issuer"), reveal_max_issuer_len_cap)
-                    current_max_name_len = max(len("Name"), reveal_max_name_len_cap)
-                    current_max_group_len = max(len("Group"), reveal_max_group_len_cap)
-                    current_max_note_len = max(len("Note"), reveal_max_note_len_cap)
-
-                    stdscr.addstr(countdown_row, reveal_box_start_col + 1, f"{'#'.ljust(3)} {'Issuer'.ljust(current_max_issuer_len)}  {'Name'.ljust(current_max_name_len)}  {'Code'.ljust(6)}  {'Group'.ljust(current_max_group_len)}  {'Note'.ljust(current_max_note_len)}")
-                    countdown_row += 1
-                    stdscr.addstr(countdown_row, reveal_box_start_col + 1, f"{'---'.ljust(3)} {'-' * current_max_issuer_len}  {'-' * current_max_name_len}  {'------'}  {'-' * current_max_group_len}  {'-' * current_max_note_len}")
-                    countdown_row += 1
-                    
-                    # Truncate entry_to_reveal fields for display
-                    display_issuer = entry_to_reveal['issuer'][:current_max_issuer_len]
-                    display_name = entry_to_reveal['name'][:current_max_name_len]
-                    display_groups = entry_to_reveal['groups'][:current_max_group_len]
-                    display_note = entry_to_reveal['note'][:current_max_note_len]
-
-                    # Print prefix before OTP
-                    prefix = f"{str(entry_to_reveal['index']).ljust(3)} {display_issuer.ljust(current_max_issuer_len)}  {display_name.ljust(current_max_name_len)}  "
-                    stdscr.addstr(countdown_row, reveal_box_start_col + 1, prefix, BOLD_WHITE_COLOR if curses_colors_enabled else curses.A_NORMAL)
-
-                    # Print OTP with highlight
-                    otp_start_col_in_box = len(prefix)
-                    stdscr.addstr(countdown_row, reveal_box_start_col + 1 + otp_start_col_in_box, otp_to_reveal.ljust(6), HIGHLIGHT_COLOR if curses_colors_enabled else curses.A_NORMAL)
-
-                    # Print suffix after OTP
-                    suffix = f"  {display_groups.ljust(current_max_group_len)}  {display_note.ljust(current_max_note_len)}"
-                    stdscr.addstr(countdown_row, reveal_box_start_col + 1 + otp_start_col_in_box + 6, suffix, BOLD_WHITE_COLOR if curses_colors_enabled else curses.A_NORMAL)
-                    countdown_row += 1
-
-                    countdown_text = f"Time until next refresh: {remaining_seconds_for_display:.1f} seconds (Press ESC to go back)"
-                    stdscr.addstr(max_rows - 1, 0, countdown_text, NORMAL_TEXT_COLOR if curses_colors_enabled else curses.A_NORMAL) # Place at bottom
-                    
-                    stdscr.refresh() # Refresh screen after all updates
-
-                    # Set timeout for getch to allow for responsive exit
-                    stdscr.timeout(1000) # 1-second timeout for getch
-                    char = stdscr.getch()
-
-                    if char == 27: # ESC key
-                        current_mode = "search"
-                        entry_to_reveal = None # Clear the revealed entry
-                        break # Exit the reveal loop
-                    elif char == 3: # Ctrl+C
-                        raise KeyboardInterrupt
-                    # If other keys are pressed, or no key, getch will return ERR after 1 second
-
-                # After countdown finishes (either by ESC/Backspace or OTP expiration)
-                stdscr.timeout(-1) # Reset timeout to blocking upon exiting reveal loop
-                current_mode = "search"
-                search_term = ""
-                revealed_otps.clear()
-            else: # current_mode is "search" or "group_selection"
-                stdscr.clear() # Clear screen only if not in reveal mode
-                row = 0 # Reset row for each refresh
-                header_row_offset = 0 # Offset for content after headers
-
-                # Print main header based on mode, search, and group filter
-                if group_selection_mode:
-                    stdscr.addstr(row, 0, "--- Select Group (Ctrl+G/Esc to cancel) ---")
-                elif current_mode == "search":
-                    if current_group_filter:
-                        stdscr.addstr(row, 0, f"--- Group: {current_group_filter} (Ctrl+G to clear) ---")
-                    elif search_term:
-                        stdscr.addstr(row, 0, f"--- Search: {search_term} ---")
-                    elif args.group:
-                        stdscr.addstr(row, 0, f"--- Group: {args.group} ---")
-                    else:
-                        stdscr.addstr(row, 0, "--- All OTPs ---") # This will be the main header if no filters
+            # Display "All OTPs" in group selection mode if there are no groups, or if it's the first option
+            if group_selection_mode:
+                # Always show "All OTPs" as the first selectable item
+                all_otps_text = "-- All OTPs --"
+                display_attr = HIGHLIGHT_COLOR if selected_row == -1 else NORMAL_TEXT_COLOR
+                stdscr.addstr(row, 2, all_otps_text[:inner_box_content_width - fixed_group_display_width], display_attr)
                 row += 1
 
-                # Handle "-- All OTPs --" display in group selection mode, outside the box
-                if group_selection_mode:
-                    all_otps_text = "-- All OTPs --"
-                    attribute = HIGHLIGHT_COLOR if current_group_filter is None else (NORMAL_TEXT_COLOR if curses_colors_enabled else curses.A_NORMAL)
-                    stdscr.addstr(row, 0, all_otps_text, attribute)
-                    row += 1 # Advance row after "All OTPs" line
+            # Display OTPs or Groups
+            for i, item in enumerate(display_list):
+                if row >= max_rows - 2: # Leave room for prompt and bottom border
+                    break
 
-                # Define box dimensions. Leave 1 line for top/bottom borders + 1 for input prompt.
-                # We use max_rows - 1 for input prompt, so actual content height is max_rows - row - 1.
-                box_start_row = row
-                box_start_col = 0
-                box_height = max(2, max_rows - box_start_row - 1) # Ensure min height of 2
-                box_width = max(2, max_cols) # Ensure min width of 2
-
-                # Draw the border box manually
-                stdscr.attron(curses.A_NORMAL)
-                stdscr.addch(box_start_row, box_start_col, curses.ACS_ULCORNER)
-                stdscr.hline(box_start_row, box_start_col + 1, curses.ACS_HLINE, box_width - 2)
-                stdscr.addch(box_start_row, box_start_col + box_width - 1, curses.ACS_URCORNER)
-
-                stdscr.vline(box_start_row + 1, box_start_col, curses.ACS_VLINE, box_height - 2)
-                stdscr.vline(box_start_row + 1, box_start_col + box_width - 1, curses.ACS_VLINE, box_height - 2)
-
-                stdscr.addch(box_start_row + box_height - 1, box_start_col, curses.ACS_LLCORNER)
-                stdscr.hline(box_start_row + box_height - 1, box_start_col + 1, curses.ACS_HLINE, box_width - 2)
-                stdscr.addch(box_start_row + box_height - 1, box_start_col + box_width - 1, curses.ACS_LRCORNER)
-                stdscr.attroff(curses.A_NORMAL)
-
-                # Adjust row for content inside the box (after top border)
-                row = box_start_row + 1 # Start printing content inside the box, below the top border
-
-                # Print header for table (Groups or OTPs) - inside the box
-                current_content_row = row # Track current row for content inside the box
-                if group_selection_mode:
-                    stdscr.addstr(current_content_row, box_start_col + 1, f"{'#'.ljust(3)} {'Group Name'.ljust(max_name_len)}")
-                    current_content_row += 1
-                    stdscr.addstr(current_content_row, box_start_col + 1, f"{'---'.ljust(3)} {'-' * max_name_len}")
-                    current_content_row += 1
+                display_attr = HIGHLIGHT_COLOR if i == selected_row else NORMAL_TEXT_COLOR
+                
+                # Dynamic width adjustment for printing OTP entries or groups
+                if not group_selection_mode:
+                    # OTP entries
+                    name_str = item["name"][:max_name_len].ljust(max_name_len)
+                    issuer_str = item["issuer"][:max_issuer_len].ljust(max_issuer_len)
+                    group_str = item["groups"][:max_group_len].ljust(max_group_len)
+                    note_str = item["note"][:max_note_len].ljust(max_note_len)
+                    
+                    # Construct the display line
+                    line = f" {name_str} | {issuer_str} | {group_str} | {note_str} "
+                    stdscr.addstr(row, 2, line[:inner_box_content_width], display_attr)
                 else:
-                    stdscr.addstr(current_content_row, box_start_col + 1, f"{'#'.ljust(3)} {'Issuer'.ljust(max_issuer_len)}  {'Name'.ljust(max_name_len)}  {'Code'.ljust(6)}  {'Group'.ljust(max_group_len)}  {'Note'.ljust(max_note_len)}")
-                    current_content_row += 1
-                    stdscr.addstr(current_content_row, box_start_col + 1, f"{'---'.ljust(3)} {'-' * max_issuer_len}  {'-' * max_name_len}  {'------'}  {'-' * max_group_len}  {'-' * max_note_len}")
-                    current_content_row += 1
-
-                # Print formatted output - inside the box
-                for i, item in enumerate(display_list): # Use enumerate to get the index for highlighting
-                    if current_content_row >= box_start_row + box_height - 1: # Leave space for the bottom border
-                        break
-
-                    line = ""
-                    attribute = NORMAL_TEXT_COLOR if curses_colors_enabled else curses.A_NORMAL
-
-                    if group_selection_mode:
-                        # Truncate group name for display
-                        display_name = item["name"][:max_name_len]
-                        line = f"{str(i + 1).ljust(3)} {display_name.ljust(max_name_len)}"
-                        if curses_colors_enabled and i == selected_row:
-                            attribute = HIGHLIGHT_COLOR
-                    else:
-                        # OTP entry display logic
-                        # Truncate fields for display
-                        display_name = item["name"][:max_name_len]
-                        display_issuer = item["issuer"][:max_issuer_len]
-                        display_groups = item["groups"][:max_group_len]
-                        display_note = item["note"][:max_note_len]
-
-                        otp_value = "******" # Obscure by default
-                        if item["uuid"] in otps and item["uuid"] in revealed_otps:
-                            try:
-                                otp_obj = otps[item["uuid"]]
-                                otp_value = otp_obj.string()
-                            except Exception as e:
-                                otp_value = f"ERROR: {e}"
-                        
-                        line = f"{str(i + 1).ljust(3)} {display_issuer.ljust(max_issuer_len)}  {display_name.ljust(max_name_len)}  {otp_value.ljust(6)}  {display_groups.ljust(max_group_len)}  {display_note.ljust(max_note_len)}"
-
-                        # Determine color attribute
-                        if curses_colors_enabled:
-                            if item["uuid"] in revealed_otps:
-                                attribute = BOLD_WHITE_COLOR
-                            elif i == selected_row and current_mode == "search": # Highlight if selected in search mode
-                                attribute = HIGHLIGHT_COLOR
-                            else:
-                                attribute = curses.A_NORMAL
-                    
-                    stdscr.addstr(current_content_row, box_start_col + 1, line, attribute)
-                    current_content_row += 1
+                    # Group names
+                    group_name_str = item["name"][:max_name_len].ljust(max_name_len)
+                    line = f" {group_name_str} "
+                    stdscr.addstr(row, 2, line[:inner_box_content_width], display_attr)
                 
-                # Input prompt for search/group selection
-                input_prompt_row = max_rows - 1
-                if group_selection_mode:
-                    stdscr.addstr(input_prompt_row, 0, "Select a group (Enter to confirm, Ctrl+G/Esc to cancel): ")
-                elif current_mode == "search":
-                    stdscr.addstr(input_prompt_row, 0, f"Type to filter, use arrows to select, Enter to reveal (Ctrl+G for groups, Ctrl+C to exit): {search_term}")
-                
-                stdscr.refresh() # Only refresh after a search/group_selection display.
-                    
+                row += 1
+
+            # Display search prompt/input line
+            prompt_string_prefix = "Search: " if current_mode == "search" else "Group Filter: "
+            
+            # If in group selection mode, allow user to type a search term to filter groups
+            current_input_text = search_term if current_mode == "search" else (search_term if group_selection_mode else "")
+
+            # Ensure the prompt fits on the last line
+            prompt_row = max_rows - 1
+            if prompt_row < 0: prompt_row = 0 # Safety check for very small terminals
+
+            stdscr.addstr(prompt_row, 0, (prompt_string_prefix + current_input_text)[:max_cols], NORMAL_TEXT_COLOR)
+
+            # Instructions
+            stdscr.addstr(max_rows - 2, 0, "Ctrl+G: Toggle Groups | ESC: Clear Search/Exit Group Select | Enter: Reveal", curses.A_DIM)
+
+            stdscr.refresh()
+
     except KeyboardInterrupt:
-        print("\nExiting.")
-        return
+        print("\nExiting.") # Handle exit gracefully
+    finally:
+        # Ensure nodelay is set to False for clean exit of curses
+        stdscr.nodelay(False)
+        stdscr.echo()
+        curses.curs_set(1)
 
 parser = argparse.ArgumentParser(description="Aegis Authenticator CLI in Python.", prog="aegis-cli")
-parser.add_argument("-v", "--vault-path", help="Path to the Aegis vault file. If not provided, attempts to find the latest in default locations.")
+parser.add_argument("vault_path", nargs="?", help="Path to the Aegis vault file. If not provided, attempts to find the latest in default locations.", default=None)
 parser.add_argument("-d", "--vault-dir", help="Directory to search for vault files. Defaults to current directory.", default=".")
 parser.add_argument("-u", "--uuid", help="Display OTP for a specific entry UUID.")
 parser.add_argument("-g", "--group", help="Filter OTP entries by a specific group name.")
-parser.add_argument("positional_vault_path", nargs="?", help=argparse.SUPPRESS, default=None)
 parser.add_argument("--no-color", action="store_true", help="Disable colored output.")
 
 
