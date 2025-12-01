@@ -1,4 +1,3 @@
-- **Color countdown (less than 10s red):** Implement visual cue for OTP countdown when less than 10 seconds remaining.
 - resizing the terminal blanks the screen until a key is pressed - it should redraw right away by detecting the terminal resize
 - After inputting the vault password it hangs until a key is pressed before going into search mode.
 - If there are too many totp entries to fit on the screen, then we should be able to scroll inside the totp box window

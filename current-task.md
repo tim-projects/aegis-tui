@@ -20,15 +20,18 @@ We are now implementing a `ncurses`-based TUI to provide a more intuitive select
     *   **Finding:** `select.select` calls failed when `sys.stdin` was mocked as `StringIO`.
     *   **Mitigation:** Patched `select.select` in unit tests to simulate input availability.
 *   **OTP entry list overlapping top border in search mode:**
-    *   **Finding:** The list of TOTP entries in search mode is not correctly positioned within the display box and overlaps the top border.
+    *   **Finding:** The list of TOTP entries in search mode was not correctly positioned within the display box and overlapped the top border.
+    *   **Mitigation:** Adjusted the starting `row` for content display within the main box to `header_row_offset + 1`, ensuring the content starts one row below the top border of the box. **(Resolved)**
 *   **Excessive screen redraws:**
-    *   **Finding:** The entire screen is being redrawn continuously in both search and reveal modes, leading to potential performance issues or visual artifacts.
-    *   **Proposed Mitigation:** In search mode, screen redraws should only occur when a key is pressed (input event) or when the terminal is resized. In reveal mode, only the countdown timer area needs to be redrawn (updated) periodically, not the entire screen, unless a resize event occurs.
+    *   **Finding:** The entire screen was being redrawn continuously in both search and reveal modes, leading to potential performance issues or visual artifacts.
+    *   **Mitigation:**
+        *   **Search Mode (`cli_main`):** Implemented a `needs_redraw` boolean flag. This flag is set to `True` initially and whenever an input event (key press, search term change, selection change, group mode toggle) occurs or a terminal resize is detected (`curses.KEY_RESIZE`). The entire display logic (from `stdscr.clear()` to `stdscr.refresh()`) is now wrapped in an `if needs_redraw:` block, ensuring redrawing only happens when necessary. After `stdscr.refresh()`, `needs_redraw` is reset to `False`.
+        *   **Reveal Mode (`_run_reveal_mode`):** Optimized redraws to only update the "Time to Next" countdown. Instead of `stdscr.clear()` in every loop iteration, the function now performs an initial full redraw of the reveal box and static content. Subsequent iterations only clear and redraw the specific line where the countdown timer is displayed. A full redraw of the reveal mode is triggered only on `curses.KEY_RESIZE`. **(Resolved)**
 
 ## Completed Tasks & Mitigations
-*   **`_curses.error: addch() returned ERR` when resizing terminal:**
-    *   **Finding:** The application crashed when resizing the terminal, specifically with `addch() returned ERR`, indicating drawing outside of screen boundaries.
-    *   **Mitigation:** Implemented `curses.KEY_RESIZE` handling to dynamically update `max_rows` and `max_cols` and trigger a full UI redraw on resize events, ensuring UI elements are always drawn within the current terminal dimensions.
+*   **`NameError: name 'group_names' is not defined`:**
+    *   **Finding:** A `NameError` occurred because `group_names` was defined inside the `while True` loop, but was being accessed before the loop in the initial `all_entries` preparation blocks.
+    *   **Mitigation:** Moved the initialization of `otps = get_otps(vault_data)` and `group_names = {group.uuid: group.name for group in vault_data.db.groups}` to directly after successful vault decryption, ensuring they are available in the correct scope when `all_entries` is populated. This also optimizes performance by avoiding redundant recalculations in each loop iteration. **(Resolved)**
 *   **Complex Column Width Distribution:**
     *   **Finding:** The initial logic for distributing column widths proportionally was overly complex and led to incorrect truncation behavior.
     *   **Mitigation:** Reverted to a simpler, more robust method that calculates maximum content lengths, determines available display width, and then caps the lengths to prevent truncation while ensuring headers fit.
@@ -142,7 +145,32 @@ We are now implementing a `ncurses`-based TUI to provide a more intuitive select
     *   **Finding:** The countdown timer in reveal mode was reported to be displaying values in milliseconds instead of seconds.
     *   **Mitigation:** Verified that `aegis-tui.py` already divides `get_ttn_func()` (which returns milliseconds from `aegis_core.py`) by 1000 when displaying "Time to Next", ensuring the value is shown in seconds. **(Resolved)**
 
-## Next Steps
-1.  Verify column truncation logic by manually running `aegis-tui.py` in various terminal sizes.
-2.  Ensure all new TUI interactions are properly covered by passing unit tests.
-3.  Clean up: Remove temporary files if any (e.g., `test_ncurses.py`).
+## Findings & Mitigations
+*   **Reveal Mode OTP Code Not Refreshing:**
+    *   **Finding:** The OTP code displayed in reveal mode does not refresh when the countdown timer runs out, displaying a stale code until the mode is re-entered.
+    *   **Mitigation:** Implemented logic within `_run_reveal_mode` to check `get_ttn_func()`. If the time to next OTP is less than or equal to 0, the OTP string is regenerated using `otp_object.string()` and the OTP code line is redrawn on the screen. **(Implemented)**
+
+*   **Column Truncation and Missing Notes Column:**
+    *   **Finding:** Columns were not truncating as expected, and the 'Notes' column was sometimes missing from the display, despite available horizontal space.
+    *   **Mitigation:** The `fixed_otp_display_width` calculation was corrected to `11`. Further, the column width allocation logic was revised. Instead of capping all columns proportionally, 'Name', 'Issuer', and 'Group' are now capped by their content length or proportional share, and then all remaining horizontal space is explicitly allocated to the 'Note' column. This ensures the 'Note' column is always visible and utilizes the available width, even if its content is brief or empty. **(Resolved)**
+
+*   **UI Improvement: Highlight First Item on Load:**
+    *   **Finding:** When the application loaded in search mode, no item was initially highlighted, leading to a less intuitive user experience.
+    *   **Mitigation:** Modified the `selected_row` initialization logic in `cli_main` to set `selected_row = 0` if the `display_list` is not empty when the application starts or when `selected_row` would otherwise be -1. This ensures the first item in the list is highlighted immediately, improving UI usability. **(Resolved)**
+
+*   **OTP Code and Countdown Timer Display Issues:**
+    *   **Finding:** The revealed OTP code displayed as a black block, making it unreadable, and the countdown timer did not turn red when less than 10 seconds remained.
+    *   **Mitigation:**
+        1.  **OTP Code Visibility:** Changed `REVEAL_HIGHLIGHT_COLOR` from `curses.COLOR_BLACK` on `curses.COLOR_CYAN` to `curses.COLOR_WHITE` on `curses.COLOR_BLUE` to ensure clear readability with a contrasting background.
+        2.  **Countdown Timer Color:** Modified the `display_field` function to directly use the `attr_to_use` parameter for all fields, removing conditional overrides. All calls to `display_field` were updated to explicitly pass the correct color attributes: `REVEAL_HIGHLIGHT_COLOR` for the OTP code, `ttn_attr` (which is `RED_TEXT_COLOR` or `NORMAL_TEXT_COLOR` based on time) for the countdown, and `NORMAL_TEXT_COLOR` for other static fields. This ensures proper color application for both the OTP code and the red countdown timer. **(Resolved)**
+
+*   **`NameError: name 'otp_code_display_row' is not defined` in Reveal Mode (re-occurrence):**
+    *   **Finding:** Despite previous attempts, the `NameError` persisted during `_run_reveal_mode` when initially revealing an OTP or during a terminal resize, indicating `otp_code_display_row` was still undefined at critical points.
+    *   **Mitigation:** Refactored the `display_field` function to return the `row_num + 1` (the next available row). All calls to `display_field` within `_run_reveal_mode` (for both initial display and `curses.KEY_RESIZE` handling) were updated to reassign the returned row number to `display_row` or `display_row_static`. This ensures consistent and correct tracking of row positions and explicit definition of `otp_code_display_row`, `otp_code_display_row_static`, and `ttn_display_row` before their usage. **(Resolved)**
+
+*   **OTP Code Not Refreshing in Reveal Mode (Persistent Issue):**
+    *   **Finding:** Despite ensuring correct display row and color, the OTP code still does not update when its countdown timer expires, indicating `otp_object.string()` might be returning a stale value because the `PyTOTP` instance itself is not being refreshed for the new time window.
+    *   **Mitigation:** The underlying `PyTOTP` object needs to be regenerated when the timer reaches zero. The plan is to:
+        1.  Obtain the original `Entry` object corresponding to `entry_to_reveal["uuid"]` from `vault_data.db.entries` once at the beginning of `_run_reveal_mode`.
+        2.  Inside the `while` loop, when `time_to_next_ms <= 0`, regenerate the `otp_object` by calling `otp_object = get_otp(original_entry)`. This will create a fresh OTP instance reflecting the current time window.
+        3.  Then, update `new_otp_code = otp_object.string()` and proceed with the existing redraw logic. **(In Progress)**
