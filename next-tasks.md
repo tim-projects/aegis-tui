@@ -1,7 +1,1 @@
-- **Refactor ncurses code into a separate module:** Extract all ncurses-related display and input handling logic into a dedicated Python module (e.g., `aegis_tui_ui.py`). This will improve modularity, maintainability, and facilitate the creation of a testable development environment.
-- resizing the terminal blanks the screen until a key is pressed - it should redraw right away by detecting the terminal resize
-- After inputting the vault password it hangs until a key is pressed before going into search mode.
-- If there are too many totp entries to fit on the screen, then we should be able to scroll inside the totp box window
-- **Interactive Group Filtering (Ctrl+G):** Add interactive functionality to filter by group using `Ctrl+G` key press, leveraging existing search filter function to select a group, then displaying only relevant entries.
-- **Fix flickering when pressing up and down arrows - The entire screen redraws causing a flicker.
 - **Enhanced Clipboard Integration and User Feedback:** Refine clipboard functionality to include configurable clipboard tools (e.g., for Xorg/Wayland via `config.json`) and display the message "Press <Enter> to copy the OTP code to the clipboard." when an item is revealed. This message should only appear if a clipboard tool is configured.

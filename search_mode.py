@@ -49,14 +49,25 @@ def run_search_mode(
     else:
         selected_row = -1
 
+    scroll_offset = 0
+    items_per_page = 10 # Initial estimate, will be updated by draw_main_screen
+
     # --- Main Search Loop ---
     while True:
         # Prepare display list based on current mode and filters
         if current_mode == "search" and not group_selection_mode:
+            term = search_term.lower()
             if current_group_filter:
-                display_list = [entry for entry in all_entries if current_group_filter in entry["groups"] and search_term.lower() in entry["name"].lower()]
+                display_list = [
+                    entry for entry in all_entries 
+                    if current_group_filter in entry["groups"] and 
+                    (term in entry["name"].lower() or term in entry["issuer"].lower())
+                ]
             else:
-                display_list = [entry for entry in all_entries if search_term.lower() in entry["name"].lower()]
+                display_list = [
+                    entry for entry in all_entries 
+                    if term in entry["name"].lower() or term in entry["issuer"].lower()
+                ]
         elif group_selection_mode:
             # In group selection mode, display available groups
             groups_list = [{"name": group.name, "uuid": group.uuid} for group in vault_data.db.groups]
@@ -69,24 +80,38 @@ def run_search_mode(
                 display_list = groups_list # No search term, show all groups
 
             # Adjust selected_row for group list
-            if current_group_filter == "-- All OTPs --":
-                selected_row = -1 # Indicate no specific group is selected from the list within the box
-            elif len(display_list) > 0:
-                try:
-                    selected_row = next(i for i, group in enumerate(display_list) if group["name"] == current_group_filter)
-                except StopIteration:
-                    selected_row = 0 # Default to first group if not found
-            else:
-                selected_row = -1
+            # Note: We don't auto-adjust selected_row here because it messes up navigation state
+            # unless the list drastically changed (e.g. search filter).
+            # We'll rely on bounds checking below.
         else:
             display_list = all_entries # Use filtered entries for display
 
         # If no items are in display_list, reset selected_row
         if len(display_list) == 0:
-            selected_row = -1
+            if not group_selection_mode:
+                selected_row = -1
+            else:
+                # In group mode, we always have "All OTPs" (index -1) unless filtered out? 
+                # Actually "All OTPs" is static. If filter excludes all groups, we can still select "All OTPs".
+                # If search term doesn't match "All OTPs" (conceptually), maybe? 
+                # For now, let's assume "All OTPs" is always selectable if search_term is empty or ignored for it.
+                # But if we type "Fina", "All OTPs" shouldn't show? 
+                # Current display logic: "All OTPs" is index 0 of virtual list.
+                # Let's keep it simple: "All OTPs" is always there as index -1.
+                if selected_row != -1:
+                     selected_row = -1
         else:
             # Ensure selected_row is within bounds for the current display_list
-            selected_row = max(0, min(selected_row, len(display_list) - 1)) if selected_row != -1 else (0 if len(display_list) > 0 else -1)
+            selected_row = max(-1 if group_selection_mode else 0, min(selected_row, len(display_list) - 1))
+
+        if needs_redraw:
+            max_rows, max_cols = stdscr.getmaxyx()
+            items_per_page = draw_main_screen(
+                stdscr, max_rows, max_cols, display_list, selected_row, search_term,
+                current_mode, group_selection_mode, current_group_filter, args.group,
+                colors, curses_colors_enabled, scroll_offset
+            )
+            needs_redraw = False # Redraw completed
 
         # --- Input Handling ---
         char = stdscr.getch() # Get a single character
@@ -100,22 +125,34 @@ def run_search_mode(
 
             if group_selection_mode:
                 if char == curses.KEY_UP:
-                    if selected_row == 0: # If at the first group, move to "All OTPs"
-                        selected_row = -1
-                    elif len(display_list) > 0:
-                        selected_row = max(0, selected_row - 1)
+                    # Virtual index mapping: -1 -> 0, 0 -> 1, ...
+                    current_v_idx = selected_row + 1
+                    if current_v_idx > 0:
+                        current_v_idx -= 1
+                        selected_row = current_v_idx - 1
+                        
+                        # Scrolling Up
+                        if current_v_idx < scroll_offset:
+                            scroll_offset = current_v_idx
+                            
                 elif char == curses.KEY_DOWN:
-                    if selected_row == -1: # If at "All OTPs", move to the first group
-                        if len(display_list) > 0:
-                            selected_row = 0
-                    elif len(display_list) > 0:
-                        selected_row = min(len(display_list) - 1, selected_row + 1)
+                    current_v_idx = selected_row + 1
+                    total_virtual_items = len(display_list) + 1
+                    if current_v_idx < total_virtual_items - 1:
+                        current_v_idx += 1
+                        selected_row = current_v_idx - 1
+                        
+                        # Scrolling Down
+                        if current_v_idx >= scroll_offset + items_per_page:
+                            scroll_offset = current_v_idx - items_per_page + 1
+
                 elif char == 27 or char == 7: # ESC or Ctrl+G to cancel group selection
                     group_selection_mode = False
                     current_group_filter = None
                     search_term = "" # Clear search term
                     # Reset selected_row to the first item in the main OTP list if available
                     selected_row = 0 if len(all_entries) > 0 else -1
+                    scroll_offset = 0 # Reset scroll
                 elif char == curses.KEY_ENTER or char in [10, 13]:
                     if selected_row == -1: # "All OTPs" selected
                         current_group_filter = None # Clear filter
@@ -128,16 +165,21 @@ def run_search_mode(
                     # Reset selected_row for the filtered OTP list
                     initial_filtered_entries = [entry for entry in all_entries if current_group_filter in entry["groups"]] if current_group_filter else all_entries
                     selected_row = 0 if len(initial_filtered_entries) > 0 else -1
+                    scroll_offset = 0 # Reset scroll
                     search_term = "" # Clear search term
             elif current_mode == "search": # Normal search mode
                 if char == curses.KEY_UP:
                     if len(display_list) > 0:
                         selected_row = max(0, selected_row - 1)
+                        if selected_row < scroll_offset:
+                            scroll_offset = selected_row
                     else:
                         selected_row = -1
                 elif char == curses.KEY_DOWN:
                     if len(display_list) > 0:
                         selected_row = min(len(display_list) - 1, selected_row + 1)
+                        if selected_row >= scroll_offset + items_per_page:
+                            scroll_offset = selected_row - items_per_page + 1
                     else:
                         selected_row = -1
                 elif char == 27: # ESC key
@@ -146,22 +188,27 @@ def run_search_mode(
                     current_group_filter = None # Clear group filter on ESC
                     # Reset selected_row for the OTP list
                     selected_row = 0 if len(all_entries) > 0 else -1
+                    scroll_offset = 0
                 elif char in [curses.KEY_BACKSPACE, 127, 8]: # Backspace key
                     if search_term: # Only modify search_term if it's not empty
                         search_term = search_term[:-1]
+                        scroll_offset = 0 # Reset scroll on search change
                 elif 32 <= char < 127: # Printable character
                     search_term += chr(char)
+                    scroll_offset = 0 # Reset scroll on search change
                 elif char == 7: # Ctrl+G to toggle group selection mode
                     group_selection_mode = not group_selection_mode
                     # revealed_otps.clear() # Clear revealed OTPs on mode change
                     if group_selection_mode:
                         selected_row = -1 # Default to "All OTPs" in group selection mode
                         search_term = "" # Clear search term when entering group selection
+                        scroll_offset = 0
                     else:
                         current_group_filter = None # Clear filter if exiting group selection mode
                         # Reset selected_row for the OTP list
                         selected_row = 0 if len(all_entries) > 0 else -1
                         search_term = "" # Clear search term when exiting group selection
+                        scroll_offset = 0
                 elif char == 3: # Ctrl+C to exit application
                     return None # Signal to exit
                 elif char == curses.KEY_ENTER or char in [10, 13]:
@@ -172,15 +219,6 @@ def run_search_mode(
         else:
             import time
             time.sleep(0.01) # Small delay to prevent tight loop if no input
-
-        if needs_redraw:
-            max_rows, max_cols = stdscr.getmaxyx()
-            draw_main_screen(
-                stdscr, max_rows, max_cols, display_list, selected_row, search_term,
-                current_mode, group_selection_mode, current_group_filter, args.group,
-                colors, curses_colors_enabled
-            )
-            needs_redraw = False # Redraw completed
 
     # Return the selected UUID or None if user exited
     return entry_to_reveal_uuid

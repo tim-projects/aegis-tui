@@ -64,10 +64,56 @@ def cli_main(stdscr, args, password):
             time.sleep(2)
             return
     
+    vault_data = None
+    attempts = 0
+    max_attempts = 3
+    
+    while attempts < max_attempts:
+        try:
+            vault_data = read_and_decrypt_vault_file(vault_path, password)
+            break # Success, exit retry loop
+        except ValueError as e:
+            attempts += 1
+            if attempts >= max_attempts:
+                stdscr.addstr(row, 0, f"Error decrypting vault: {e}", RED_TEXT_COLOR)
+                stdscr.addstr(row + 1, 0, "Maximum attempts reached. Exiting.", RED_TEXT_COLOR)
+                stdscr.refresh()
+                time.sleep(2)
+                return
+
+            stdscr.addstr(row, 0, f"Error: {e}. Try again ({attempts}/{max_attempts})", RED_TEXT_COLOR)
+            row += 1
+            stdscr.addstr(row, 0, "Enter vault password: ")
+            stdscr.refresh()
+            
+            # Secure password input in curses
+            curses.echo() # Ideally we shouldn't use echo for password, but manual masking is complex.
+            # Actually, let's implement a simple masked input loop
+            curses.noecho()
+            pwd_input = []
+            while True:
+                ch = stdscr.getch()
+                if ch in [10, 13]: # Enter
+                    break
+                elif ch in [8, 127, curses.KEY_BACKSPACE]: # Backspace
+                    if pwd_input:
+                        pwd_input.pop()
+                        y, x = stdscr.getyx()
+                        stdscr.move(y, x - 1)
+                        stdscr.delch()
+                elif 32 <= ch <= 126:
+                    pwd_input.append(chr(ch))
+                    stdscr.addch("*")
+            
+            password = "".join(pwd_input)
+            row += 1 # Move past password line for next attempt error or success
+            stdscr.addstr(row, 0, "Verifying...", NORMAL_TEXT_COLOR)
+            stdscr.refresh()
+            row += 1
+
     try:
-        vault_data = read_and_decrypt_vault_file(vault_path, password)
-        
         # Save the successfully opened vault path to config
+
         config["last_opened_vault"] = vault_path
         config["last_vault_dir"] = os.path.dirname(vault_path)
         save_config(config)
@@ -135,11 +181,6 @@ def cli_main(stdscr, args, password):
                 # If run_search_mode returns None, it means the user exited.
                 break
 
-    except ValueError as e:
-        stdscr.addstr(row, 0, f"Error decrypting vault: {e}")
-        stdscr.refresh()
-        time.sleep(3)
-        return
     except KeyboardInterrupt:
         return
     except Exception as e:
