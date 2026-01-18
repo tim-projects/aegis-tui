@@ -178,7 +178,7 @@ def run_search_mode(
             draw_main_screen(
                 stdscr, max_rows, max_cols, display_list, selected_row, search_term,
                 current_mode, group_selection_mode, current_group_filter, args.group,
-                NORMAL_TEXT_COLOR, HIGHLIGHT_COLOR, curses_colors_enabled
+                colors, curses_colors_enabled
             )
             needs_redraw = False # Redraw completed
 
